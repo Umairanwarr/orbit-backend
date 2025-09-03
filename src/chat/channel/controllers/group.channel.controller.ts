@@ -43,6 +43,7 @@ export class GroupChannelController {
         @InjectConnection() private readonly connection: mongoose.Connection
     ) {
     }
+    
 
     @UseInterceptors(imageFileInterceptor)
     @Post("/group")

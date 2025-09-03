@@ -6,7 +6,6 @@
 
 import sharp from "sharp";
 
-
 export async function cropProfileImageToImages(buffer: Buffer) {
   const promises = [];
   promises.push(

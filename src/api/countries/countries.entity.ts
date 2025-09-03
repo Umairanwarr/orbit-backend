@@ -24,11 +24,9 @@ export const CountrySchema = new mongoose.Schema(
         unicode: {type: String, required: true},
         name: {type: String, required: true},
         image: {type: String, required: true},
-
     },
     {
-        timestamps: true,
-        
+        timestamps: true,   
     }
 );
 
