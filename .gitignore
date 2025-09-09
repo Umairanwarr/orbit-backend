@@ -33,3 +33,9 @@ lerna-debug.log*
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+# Environment variables and sensitive files
+.env.development
+.env.production
+firebase-adminsdk.json
+AuthKey.p8
