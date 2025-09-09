@@ -208,36 +208,33 @@ export class NotificationEvent {
 
 
     private async _fcmSend(event: NotificationData, tokens: any[]) {
-        this.messaging
-            .sendEachForMulticast({
-                notification: {
-                    body: event.body,
-                    title: event.title
-                },
-                tokens: tokens,
-                data: event.data,
-                android: {
-                    notification: {
-                        tag: Math.random().toString(),
-                        icon: "@mipmap/ic_launcher",
-                        priority: "max",
-                        defaultSound: true,
-                        channelId: event.tag
+        // Check if this is a chat notification that should have reply actions
+        const t = event.data['type'];
+        const isChatNotification = t === 'singleChat' || t === 'groupChat' || t === 'broadcastChat';
+
+        const baseMessage = {
+            tokens: tokens,
+            data: event.data,
+            android: {
+                priority: 'high'
+            },
+            apns: {
+                payload: {
+                    aps: {
+                        contentAvailable: true,
+                        ...(isChatNotification && {
+                            category: 'CHAT_REPLY'
+                        })
                     },
-                    priority: "high"
-                    // collapseKey: event.tag,
                 },
-                apns: {
-                    payload: {
-                        aps: {
-                            contentAvailable: true,
-                        },
-                    },
-                    headers: {
-                        "apns-priority": "10"
-                    }
+                headers: {
+                    'apns-priority': '10'
                 }
-            })
+            }
+        } as any;
+
+        this.messaging
+            .sendEachForMulticast(baseMessage)
             .then(async (reason) => {
                 await this._afterFcmSendMsg(reason, event);
             })

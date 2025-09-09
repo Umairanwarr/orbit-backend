@@ -40,17 +40,32 @@ export class MailEmitterService {
     return code;
   }
   async sendResetPasswordLink(user: IUser, resetLink: string, isDev: boolean) {
-    // if in dev, just return the link instead of sending email
-    if (isDev) {
-      return resetLink;
+    console.log(`Sending reset password link to: ${user.email}, isDev: ${isDev}`);
+    console.log(`Reset link: ${resetLink}`);
+    
+    // Always send email for reset password (same as signup email logic)
+    // Check rate limiting like signup email does
+    if (user.lastMail && user.lastMail.sendAt) {
+      let min = parseInt(
+        date.subtract(new Date(), user.lastMail.sendAt).toMinutes().toString(),
+        10
+      );
+      if (min < 2) {
+        throw new BadRequestException(i18nApi.wait2MinutesToSendMail);
+      }
     }
 
     let x = new SendMailEvent();
     x.code = resetLink; // instead of numeric code, send the link
     x.user = user;
     x.mailType = MailType.ResetPassword;
+    
+    console.log("Emitting send.mail event for reset password");
     this.eventEmitter.emit("send.mail", x);
 
+    if (isDev) {
+      return `Password reset link has been sent to your email. Dev link: ${resetLink}`;
+    }
     return "Password reset link has been sent to your email";
   }
 }

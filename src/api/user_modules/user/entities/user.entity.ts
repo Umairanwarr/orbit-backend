@@ -23,6 +23,10 @@ export interface IUser {
   phoneNumber?: string;
   // Gender enum male female
   gender?: string;
+  // Location fields for nearby users feature
+  latitude?: number;
+  longitude?: number;
+  locationUpdatedAt?: Date;
   lastMail: {
     type: MailType;
     sendAt: Date;
@@ -74,6 +78,9 @@ export const UserSchema = new mongoose.Schema(
       default: UserGlobalCallStatus.createEmpty(),
     },
     gender: { type: String, enum: ["male", "female", "other"], default: "male" },
+    latitude: { type: Number, default: null },
+    longitude: { type: Number, default: null },
+    locationUpdatedAt: { type: Date, default: null },
     uniqueCode: { type: Number, required: true },
     password: { type: String, required: true, select: false },
     lastMail: { type: Object, default: {} },

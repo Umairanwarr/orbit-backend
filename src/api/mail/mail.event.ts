@@ -65,7 +65,8 @@ export class MailEvent {
             }
 
         } catch (e) {
-            this.logger.error(e);
+            this.logger.error(`Failed to send email to ${event.user.email}:`, e);
+            console.error('Email send error:', e);
         }
     }
 }

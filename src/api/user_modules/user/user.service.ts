@@ -78,24 +78,124 @@ export class UserService extends BaseService<IUser> {
       ];
     }
 
+    // 8. LOCATION-BASED FILTER
+    let aggregationPipeline = [];
+    if (filters.nearbyOnly && filters.latitude && filters.longitude) {
+      const maxDistanceKm = filters.maxDistance || 50; // Default 50km radius
+      
+      aggregationPipeline = [
+        {
+          $match: query
+        },
+        {
+          $addFields: {
+            distance: {
+              $cond: {
+                if: {
+                  $and: [
+                    { $ne: ["$latitude", null] },
+                    { $ne: ["$longitude", null] }
+                  ]
+                },
+                then: {
+                  $multiply: [
+                    6371, // Earth's radius in kilometers
+                    {
+                      $acos: {
+                        $add: [
+                          // sin(lat1) * sin(lat2)
+                          {
+                            $multiply: [
+                              { $sin: { $multiply: ["$latitude", 0.017453292519943295] } },
+                              { $sin: { $multiply: [filters.latitude, 0.017453292519943295] } }
+                            ]
+                          },
+                          // cos(lat1) * cos(lat2) * cos(lon2 - lon1)
+                          {
+                            $multiply: [
+                              { $cos: { $multiply: ["$latitude", 0.017453292519943295] } },
+                              { $cos: { $multiply: [filters.latitude, 0.017453292519943295] } },
+                              {
+                                $cos: {
+                                  $subtract: [
+                                    { $multiply: [filters.longitude, 0.017453292519943295] },
+                                    { $multiply: ["$longitude", 0.017453292519943295] }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                else: 99999 // Large number for users without location
+              }
+            }
+          }
+        },
+        {
+          $match: {
+            distance: { $lte: maxDistanceKm }
+          }
+        },
+        {
+          $sort: { distance: 1 } // Sort by distance (nearest first)
+        }
+      ];
+    }
+
     // --- PAGINATION ---
     const page = filters.page > 0 ? filters.page : 1;
     const limit = filters.limit > 0 ? filters.limit : 10;
     const skip = (page - 1) * limit;
 
     // --- FETCH USERS ---
-    const [users, total] = await Promise.all([
-      this.model
-        .find(query)
-        .populate("countryId")
-        .select(
-          "-password -resetPasswordOTP -resetPasswordOTPExpiry -lastMail -socialId -provider"
-        )
-        .skip(skip)
-        .limit(limit)
-        .exec(),
-      this.model.countDocuments(query),
-    ]);
+    let users, total;
+    
+    if (aggregationPipeline.length > 0) {
+      // Use aggregation for location-based queries
+      const aggregationWithPagination = [
+        ...aggregationPipeline,
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $project: {
+            password: 0,
+            lastMail: 0,
+            resetPasswordOTP: 0,
+            resetPasswordOTPExpiry: 0
+          }
+        }
+      ];
+      
+      const [usersResult, totalResult] = await Promise.all([
+        this.model.aggregate(aggregationWithPagination),
+        this.model.aggregate([
+          ...aggregationPipeline,
+          { $count: "total" }
+        ])
+      ]);
+      
+      users = usersResult;
+      total = totalResult[0]?.total || 0;
+    } else {
+      // Use regular find for non-location queries
+      [users, total] = await Promise.all([
+        this.model
+          .find(query)
+          .populate("countryId")
+          .select(
+            "-password -lastMail -resetPasswordOTP -resetPasswordOTPExpiry"
+          )
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        this.model.countDocuments(query),
+      ]);
+    }
 
     return {
       users,

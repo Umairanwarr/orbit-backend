@@ -4,7 +4,7 @@
  * MIT license that can be found in the LICENSE file.
  */
 
-import {Allow, IsBoolean, IsBooleanString, IsEnum, IsJSON, IsNotEmpty, IsUUID, ValidateIf} from "class-validator";
+import {Allow, IsBoolean, IsBooleanString, IsEnum, IsJSON, IsNotEmpty, IsString, IsUUID, ValidateIf} from "class-validator";
 import {MessageType} from "../../../core/utils/enums";
 import CommonDto from "../../../core/common/dto/common.dto";
 import {BaseUser} from "../../../core/utils/interfaceces";
@@ -42,7 +42,7 @@ export class SendMessageDto extends CommonDto {
 
     @Allow()
     @ValidateIf(object => object["forwardLocalId"])
-    @IsUUID()
+    @IsString()
     forwardLocalId?: string;
 
     @Allow()

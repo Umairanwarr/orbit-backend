@@ -32,6 +32,7 @@ import {AppConfigService} from "../../../api/app_config/app_config.service";
 import {IGroupMember} from "../../group_member/entities/group_member.entity";
 import {IMessage} from "../../message/entities/message.entity";
 import {DeleteMessageDto} from "../dto/delete.message.dto";
+import {NotificationReplyDto} from "../dto/notification.reply.dto";
 import {MessagesSearchDto} from "../../message/dto/messages_search_dto";
 import {jsonDecoder} from "../../../core/utils/app.validator";
 import {CreateS3UploaderDto} from "../../../common/file_uploader/create-s3_uploader.dto";
@@ -351,6 +352,15 @@ export class MessageChannelService {
     }
 
     private async getForwardMessageNewDto(dto: SendMessageDto) {
+        // Check if this is a cross-room forwarded message (starts with "forwarded_")
+        if (dto.forwardLocalId && dto.forwardLocalId.startsWith("forwarded_")) {
+            // For cross-room forwarded messages, don't try to look up the original message
+            // The content and attachments are already copied in the client
+            dto._replyTo = undefined;
+            dto.replyToLocalId = undefined;
+            return dto;
+        }
+        
         let fToMsg: any = await this.messageService.getByLocalId(dto.forwardLocalId);
         if (!fToMsg) throw new ForbiddenException("cant find the forwarded message id " + dto.forwardLocalId)
         dto._messageAttachment = fToMsg.msgAtt;
@@ -588,5 +598,19 @@ export class MessageChannelService {
             .emit(SocketEventsType.v1OnUpdateMessage, JSON.stringify(updatedMsg));
 
         return "Reaction updated successfully";
+    }
+
+    async replyFromNotification(dto: NotificationReplyDto) {
+        // Create a SendMessageDto from the notification reply
+        const sendDto = new SendMessageDto();
+        sendDto.content = dto.content;
+        sendDto.localId = dto.localId;
+        sendDto.messageType = MessageType.Text;
+        sendDto.myUser = dto.myUser;
+        sendDto._roomId = dto.roomId;
+        sendDto._platform = dto.platform || 'notification';
+
+        // Send the message using existing createMessage logic
+        return await this.createMessage(sendDto, false);
     }
 }

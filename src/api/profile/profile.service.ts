@@ -52,6 +52,7 @@ import { ProfileNotificationEmitter } from "./profile_notification_emitter";
 import { UserSearchFilterDto } from "./dto/user-search-filter.dto";
 import { BanService } from "../ban/ban.service";
 import { UpdateMyGenderDto } from "./dto/update-my-gender.dto";
+import { UpdateMyLocationDto } from "./dto/update-my-location.dto";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 
@@ -80,22 +81,58 @@ export class ProfileService {
   ) {}
 
   async updateMyGender(dto: UpdateMyGenderDto) {
-    const { myUser, gender } = dto;
-
-    if (!["male", "female", "other"].includes(gender)) {
-      throw new BadRequestException("Invalid gender value");
+    const user = await this.userService.findById(dto.myUser._id);
+    if (!user) {
+      throw new BadRequestException("User not found");
     }
 
-    const updatedUser = await this.userModel.findByIdAndUpdate(
-      myUser._id,
-      { gender },
-      { new: true }
-    );
+    await this.userService.findByIdAndUpdate(dto.myUser._id, {
+      gender: dto.gender,
+    });
 
-    return {
-      message: "Gender updated successfully",
-      user: updatedUser,
-    };
+    // Return updated user document
+    return this.userService.findById(dto.myUser._id);
+  }
+
+  async updateMyLocation(dto: UpdateMyLocationDto) {
+    try {
+      console.log('Update location DTO:', JSON.stringify(dto, null, 2));
+      
+      if (!dto.myUser || !dto.myUser._id) {
+        throw new BadRequestException("User not authenticated. Missing user information in request.");
+      }
+
+      const userId = dto.myUser._id;
+      console.log('Updating location for user ID:', userId);
+      
+      const user = await this.userService.findById(userId);
+      if (!user) {
+        throw new BadRequestException("User not found in database");
+      }
+
+      console.log('Found user in database. Updating location...');
+      
+      const updateData = {
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        locationUpdatedAt: new Date(),
+      };
+      
+      console.log('Update data:', JSON.stringify(updateData, null, 2));
+      
+      await this.userService.findByIdAndUpdate(userId, updateData);
+      console.log('Location updated successfully');
+
+      const updatedUser = await this.userService.findById(userId);
+      
+      return {
+        message: "Location updated successfully",
+        user: updatedUser,
+      };
+    } catch (error) {
+      console.error('Error in updateMyLocation:', error);
+      throw error; // Re-throw to be handled by the global exception filter
+    }
   }
 
   async getUsersSearch(searchFilters: UserSearchFilterDto, myUser: IUser) {

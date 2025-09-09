@@ -28,4 +28,25 @@ export class UserSearchFilterDto {
   @Transform(({ value }) => Number(value))
   @IsNumber()
   limit: number = 10;
+
+  // Location-based filtering
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsNumber()
+  maxDistance?: number; // Maximum distance in kilometers
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true')
+  @IsBoolean()
+  nearbyOnly?: boolean; // Flag to enable location-based filtering
 }

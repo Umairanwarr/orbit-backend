@@ -233,7 +233,8 @@ export class AuthController {
     if (!email) {
       throw new BadRequestException("Email is required");
     }
-    return resOK(await this.authService.sendOtpResetPassword(email, isDv));
+    // Changed to use link-based reset instead of OTP
+    return resOK(await this.authService.sendResetPasswordLink(email, isDv));
   }
 
   @UseGuards(VerifiedAuthGuard)
@@ -244,7 +245,15 @@ export class AuthController {
   }
 
   @Post("/verify-and-reset-password")
-  async verifyOtpResetPassword(@Body() dto: ResetPasswordDto) {
-    return resOK(await this.authService.verifyOtpResetPassword(dto));
+  async verifyOtpResetPassword(
+    @Body("email") email: string,
+    @Body("token") token: string,
+    @Body("newPassword") newPassword: string
+  ) {
+    if (!email || !token || !newPassword) {
+      throw new BadRequestException("Email, token, and new password are required");
+    }
+    // Changed to use link-based reset instead of OTP
+    return resOK(await this.authService.resetPasswordWithLink(email, token, newPassword));
   }
 }

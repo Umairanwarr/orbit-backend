@@ -41,6 +41,7 @@ import { MongoPeerIdDto } from "../../core/common/dto/mongo.peer.id.dto";
 import { CreateReportSystemDto } from "../report_system/dto/create-report_system.dto";
 import { UserSearchFilterDto } from "./dto/user-search-filter.dto";
 import { UpdateMyGenderDto } from "./dto/update-my-gender.dto";
+import { UpdateMyLocationDto } from "./dto/update-my-location.dto";
 
 @V1Controller("profile")
 export class ProfileController {
@@ -75,11 +76,26 @@ export class ProfileController {
     return resOK(await this.profileService.getAppConfig(req.user));
   }
 
-  // @UseGuards(VerifiedAuthGuard)
-  // @Get("/users")
-  // async getUsersAndSearch(@Req() req: any, @Query() dto: Object) {
-  //   return resOK(await this.profileService.getUsersAndSearch(dto, req.user));
-  // }
+  @UseGuards(VerifiedAuthGuard)
+  @Patch("/location")
+  async updateMyLocation(@Req() req: any, @Body() dto: UpdateMyLocationDto) {
+    console.log('Current user from request:', JSON.stringify(req.user, null, 2));
+    
+    if (!req.user || !req.user._id) {
+      throw new BadRequestException('User not properly authenticated');
+    }
+    
+    // Create a new DTO with the user information
+    const locationUpdateDto: UpdateMyLocationDto = {
+      ...dto,
+      myUser: {
+        _id: req.user._id,
+        // Add any other required user properties here
+      }
+    };
+    
+    return resOK(await this.profileService.updateMyLocation(locationUpdateDto));
+  }
 
   @UseGuards(VerifiedAuthGuard)
   @Get("/admin-notifications")

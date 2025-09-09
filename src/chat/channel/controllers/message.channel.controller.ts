@@ -21,6 +21,7 @@ import {MessageChannelService} from "../services/message.channel.service";
 import {FilesInterceptor} from "@nestjs/platform-express";
 import {SendMessageDto} from "../dto/send.message.dto";
 import {DeleteMessageDto} from "../dto/delete.message.dto";
+import {NotificationReplyDto} from "../dto/notification.reply.dto";
 import {VerifiedAuthGuard} from "../../../core/guards/verified.auth.guard";
 import {V1Controller} from "../../../core/common/v1-controller.decorator";
 import {MongoRoomIdDto} from "../../../core/common/dto/mongo.room.id.dto";
@@ -123,6 +124,12 @@ export class MessageChannelController {
             throw new BadRequestException('Emoji is required');
         }
         return resOK(await this.channelMessageService.reactToMessage(dto, emoji.trim()));
+    }
+
+    @Post('/notification-reply')
+    async replyFromNotification(@Req() req: any, @Body() dto: NotificationReplyDto) {
+        dto.myUser = req.user;
+        return resOK(await this.channelMessageService.replyFromNotification(dto));
     }
 
 }
