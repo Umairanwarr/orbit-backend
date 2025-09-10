@@ -267,12 +267,26 @@ export class AdminPanelService {
   }
 
   async verifyUser(id: string) {
-    await this.userAdminService.updateUserData(id, { verifiedAt: new Date() });
+    let user = await this.userService.findByIdOrThrow(id);
+    const roles = new Set<UserRole>(user.roles || []);
+    roles.add(UserRole.HasBadge);
+    
+    await this.userAdminService.updateUserData(id, { 
+      verifiedAt: new Date(),
+      roles: Array.from(roles)
+    });
     return { message: "User verified successfully" };
   }
 
   async unverifyUser(id: string) {
-    await this.userAdminService.updateUserData(id, { verifiedAt: null });
+    let user = await this.userService.findByIdOrThrow(id);
+    const roles = new Set<UserRole>(user.roles || []);
+    roles.delete(UserRole.HasBadge);
+    
+    await this.userAdminService.updateUserData(id, { 
+      verifiedAt: null,
+      roles: Array.from(roles)
+    });
     return { message: "User unverified successfully" };
   }
 

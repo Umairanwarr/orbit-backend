@@ -177,7 +177,7 @@ export class ProfileService {
     let res = {};
     let user = await this.userService.findByIdOrThrow(
       dto.id,
-      "userImage fullName email userPrivacy bio phoneNumber lastSeenAt createdAt hasBadge"
+      "userImage fullName email userPrivacy bio phoneNumber lastSeenAt createdAt roles"
     );
     let chatReq = await this.chatRequestService.findOne({
       $or: [{ receiverId: dto.myUser._id }, { senderId: dto.myUser._id }],
@@ -185,6 +185,7 @@ export class ProfileService {
     });
     res = {
       ...user,
+      hasBadge: user.roles.includes(UserRole.HasBadge),
       ...(await this.banServer.checkBans(
         new MongoPeerIdDto(dto.id, dto.myUser)
       )),
