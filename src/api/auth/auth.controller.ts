@@ -126,6 +126,22 @@ export class AuthController {
     return this.authService.twitterLogin(dto);
   }
 
+  @Post("/auth0")
+  @HttpCode(200)
+  async auth0Login(
+    @Body() dto: SocialLoginDto,
+    @IpAddress() ipAddress: any,
+    @IsDevelopment() isDev: boolean
+  ) {
+    dto.ip = ipAddress;
+    try {
+      dto.deviceInfo = jsonDecoder(dto.deviceInfo);
+    } catch (err) {
+      // ignore
+    }
+    return resOK(await this.authService.auth0Login(dto));
+  }
+
   @Post("/send-otp-admin-reset")
   async sendOtpAdminReset(
     @Body("email") email: string,

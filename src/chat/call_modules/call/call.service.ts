@@ -190,6 +190,45 @@ export class CallService {
             callStatus: CallStatus.Ring,
         });
 
+        // Also emit a socket event to the callee for immediate web pickup UI
+        this.socket.io
+            .to(peerId.toString())
+            .emit(
+                SocketEventsType.v1OnNewCall,
+                JSON.stringify({
+                    roomId: dto.roomId,
+                    callId: call._id,
+                    withVideo: dto.withVideo,
+                    callerName: dto.myUser.fullName,
+                    userData: {
+                        id: dto.myUser._id,
+                        fullName: dto.myUser.fullName,
+                        userImage: dto.myUser.userImage,
+                    },
+                }),
+            );
+
+        // Create a ring call message in the room with invitation details for clients to join
+        const ringMsgDto = getMsgDtoObj({
+            rId: dto.roomId,
+            mT: MessageType.Call,
+            att: {
+                callStatus: CallStatus.Ring,
+                startAt: new Date(),
+                withVideo: dto.withVideo,
+                endAt: null,
+                callId: call._id,
+                isInvitation: true,
+            },
+            content: `📞 Incoming ${dto.withVideo ? 'Video' : 'Audio'} call from ${dto.myUser.fullName}`,
+            user: dto.myUser,
+        });
+
+        const newMessage = await this.messageService.create(ringMsgDto);
+        this.socket.io
+            .to(dto.roomId.toString())
+            .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(newMessage));
+
         return call._id;
     }
 
@@ -794,6 +833,8 @@ export class CallService {
                 startAt: new Date(),
                 withVideo: dto.withVideo,
                 endAt: null,
+                callId: call._id,
+                isInvitation: true,
             },
             content: `📞 New call from ${rM.t} 👥`,
             user: dto.myUser,

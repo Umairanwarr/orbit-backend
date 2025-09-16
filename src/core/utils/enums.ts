@@ -86,6 +86,10 @@ export enum RegisterMethod {
   apple = "apple",
   google = "google",
   twitter = "twitter",
+  linkedin = "linkedin",
+  microsoft = "microsoft",
+  yahoo = "yahoo",
+  snapchat = "snapchat",
 }
 
 export enum RegisterStatus {
@@ -188,7 +192,7 @@ export enum SocketEventsType {
   v1OnCallEnded = "v1OnCallEnded",
   // v1OnCallCanceled = "v1OnCallCanceled",
   v1OnCallRejected = "v1OnCallRejected",
-  // v1OnNewCall = "v1OnNewCall",
+  v1OnNewCall = "v1OnNewCall",
   v1OnCallTimeout = "v1OnCallTimeout",
   v1OnCallParticipantJoined = "v1OnCallParticipantJoined",
   v1OnIceCandidate = "v1OnIceCandidate",
@@ -261,6 +265,7 @@ export enum MessageInfoType {
   Leave = "leave",
   Kick = "kick",
   CreateGroup = "createGroup",
+  CreateChannel = "createChannel",
   DeleteGroup = "deleteGroup",
 
   AddToBroadcast = "addToBroadcast",

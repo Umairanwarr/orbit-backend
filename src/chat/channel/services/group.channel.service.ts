@@ -95,6 +95,7 @@ export class GroupChannelService {
         let roomMembers: Partial<IRoomMember>[] = [];
         let groupMembers: Partial<IGroupMember>[] = [];
         let messages: SendMessageDto[] = []
+        const isChannel = dto.extraData && (dto.extraData as any)['isChannel'] === true;
         let createGroupMsgDto = getMsgDtoObj({
             mT: MessageType.Info,
             _id: newMongoObjId().toString(),
@@ -104,9 +105,11 @@ export class GroupChannelService {
                 adminName: dto.myUser.fullName,
                 targetName: dto.groupName,
                 targetId: groupId,
-                action: MessageInfoType.CreateGroup
+                action: isChannel ? MessageInfoType.CreateChannel : MessageInfoType.CreateGroup
             },
-            content: dto.myUser.fullName + ' Create group chat with you ' + config.roomIcons.group
+            content: isChannel
+                ? `Channel created by ${dto.myUser.fullName}`
+                : dto.myUser.fullName + ' Create group chat with you ' + config.roomIcons.group
         });
         for (let user of users) {
             //exclude if their ban !
@@ -148,7 +151,7 @@ export class GroupChannelService {
                         ? GroupRoleType.SuperAdmin
                         : GroupRoleType.Member,
             });
-            if (user._id.toString() != dto.myUser._id) {
+            if (!isChannel && user._id.toString() != dto.myUser._id) {
                 messages.push(sendMsgDto)
             }
         }
@@ -219,6 +222,9 @@ export class GroupChannelService {
 
         if (dto.ids.includes(dto.myUser._id.toString())) throw new BadRequestException('My id should not included');
         let added = 0
+        // Check channel flag once
+        const settings = await this.groupSetting.findByIdOrThrow(gId);
+        const isChannel = settings && (settings as any).extraData && (settings as any).extraData['isChannel'] === true;
         for (let id of dto.ids) {
             //check if user in the group or not or exits and kicked or left!
             //create user group member
@@ -261,19 +267,21 @@ export class GroupChannelService {
                 }
             )
             await this.socketIoService.joinRoom({roomId: gId, usersIds: [id]})
-            let msgDto = getMsgDtoObj({
-                mT: MessageType.Info,
-                user: dto.myUser,
-                rId: gId,
-                att: {
-                    adminName: dto.myUser.fullName,
-                    targetId: peerUser._id,
-                    targetName: peerUser.fullName,
-                    action: MessageInfoType.AddGroupMember
-                },
-                content: peerUser.fullName + " Added BY " + dto.myUser.fullName,
-            });
-            this.messageChannelService.createMessage(msgDto, true).then()
+            if (!isChannel) {
+                let msgDto = getMsgDtoObj({
+                    mT: MessageType.Info,
+                    user: dto.myUser,
+                    rId: gId,
+                    att: {
+                        adminName: dto.myUser.fullName,
+                        targetId: peerUser._id,
+                        targetName: peerUser.fullName,
+                        action: MessageInfoType.AddGroupMember
+                    },
+                    content: peerUser.fullName + " Added BY " + dto.myUser.fullName,
+                });
+                this.messageChannelService.createMessage(msgDto, true).then()
+            }
             // await this.notificationService.singleChatNotification(id, newMessage);
 
             // Add loyalty points for joining group
@@ -623,9 +631,36 @@ export class GroupChannelService {
     async updateGroupExtraData(dto: MongoRoomIdDto, data: {}) {
         if (Object.keys(data).length == 0) throw new BadRequestException("object data in body  is required and not be empty")
         await this.middlewareService.isThereRoomMemberOrThrow(dto.roomId, dto.myUser._id)
+        // Read current settings to detect transition to channel
+        const settings = await this.groupSetting.findByIdOrThrow(dto.roomId);
+        const wasChannel = settings && (settings as any).extraData && (settings as any).extraData['isChannel'] === true;
         await this.groupSetting.findByIdAndUpdate(dto.roomId, {
             extraData: data
         })
+
+        const isChannel = (data as any)['isChannel'] === true;
+        if (!wasChannel && isChannel) {
+            // Emit a channel created info message so clients show correct banner
+            const msgDto = getMsgDtoObj({
+                mT: MessageType.Info,
+                user: dto.myUser,
+                rId: dto.roomId,
+                att: {
+                    adminName: dto.myUser.fullName,
+                    targetName: settings.gName,
+                    targetId: dto.roomId,
+                    action: MessageInfoType.CreateChannel,
+                },
+                content: `Channel created by ${dto.myUser.fullName}`,
+            });
+            await this.messageChannelService.createMessage(msgDto, true);
+            // Remove any previous 'CreateGroup' info messages so UI won't show 'Group created by'
+            await this.messageService.deleteWhere({
+                rId: dto.roomId,
+                mT: MessageType.Info,
+                'att.action': MessageInfoType.CreateGroup,
+            } as any);
+        }
         return "success"
     }
 
@@ -723,5 +758,76 @@ export class GroupChannelService {
         let groupMembers = await this.groupMember.findAll({rId: roomId}, "uId")
         outUsers.push(...groupMembers.map(value => value.uId.toString()))
         return this.userService.searchV2(dto, outUsers)
+    }
+
+    /**
+     * Allow a user to join a channel (a special group where only admins can post).
+     * This will create both a room member and a group member entries for the user.
+     */
+    async joinChannel(dto: MongoRoomIdDto) {
+        // Validate group settings and channel flag
+        let settings = await this.groupSetting.findByIdOrThrow(dto.roomId);
+        const isChannel = settings && (settings as any).extraData && (settings as any).extraData['isChannel'] === true;
+        if (!isChannel) throw new BadRequestException("This room is not a channel");
+
+        // Check existing membership
+        const existingMember = await this.groupMember.findOne({ rId: dto.roomId, uId: dto.myUser._id }, null);
+        if (existingMember) {
+            // Already joined, return full room model
+            return this.channelService._getOneFullRoomModel({ roomId: dto.roomId, userId: dto.myUser._id });
+        }
+
+        // Create membership entries
+        const me: IUser = await this.userService.findByIdOrThrow(dto.myUser._id, "fullName fullNameEn userImage");
+        await this.groupMember.create({
+            uId: me._id,
+            rId: dto.roomId,
+            userData: {
+                _id: me._id,
+                userImage: me.userImage,
+                fullName: me.fullName,
+                fullNameEn: me.fullNameEn,
+            },
+            gR: GroupRoleType.Member,
+        });
+
+        await this.roomMemberService.create({
+            uId: me._id,
+            rId: dto.roomId,
+            lSMId: newMongoObjId().toString(),
+            rT: RoomType.GroupChat,
+            t: settings.gName,
+            tEn: remove(settings.gName),
+            img: settings.gImg,
+            isOneSeen: false,
+        });
+
+        await this.socketIoService.joinRoom({ roomId: dto.roomId.toString(), usersIds: [dto.myUser._id.toString()] });
+        await this.groupSetting.findByIdAndUpdate(dto.roomId, { $pull: { outUsers: dto.myUser._id } });
+
+        return this.channelService._getOneFullRoomModel({ roomId: dto.roomId, userId: dto.myUser._id });
+    }
+
+    /**
+     * Return a simple list of suggested channels with follower counts and join status.
+     */
+    async getSuggestedChannels(myUserId: string, limit: number = 20) {
+        // Find channel settings
+        const channels = await this.groupSetting.findAll({ "extraData.isChannel": true }, null, { sort: "-createdAt", limit });
+        const results: any[] = [];
+        for (const ch of channels) {
+            const followers = await this.groupMember.getMembersCount(ch._id.toString());
+            const isJoined = await this.roomMemberService.findOne({ rId: ch._id, uId: myUserId }) != null;
+            results.push({
+                roomId: ch._id,
+                title: ch.gName,
+                image: ch.gImg,
+                followers,
+                isJoined,
+            });
+        }
+        // sort by followers desc
+        results.sort((a, b) => (b.followers || 0) - (a.followers || 0));
+        return { docs: results };
     }
 }

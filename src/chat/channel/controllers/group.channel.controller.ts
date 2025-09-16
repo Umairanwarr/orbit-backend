@@ -134,6 +134,19 @@ export class GroupChannelController {
         return resOK(await this.groupService.getGroupMembers(req.user, dto, mongoDto.roomId));
     }
 
+    // ---------------------- Channel endpoints ----------------------
+    @Post("/:roomId/channel/join")
+    async joinChannel(@Req() req:any, @Param() dto: MongoRoomIdDto) {
+        dto.myUser = req.user;
+        return resOK(await this.groupService.joinChannel(dto));
+    }
+
+    @Get("/channels/suggested")
+    async getSuggestedChannels(@Req() req:any, @Query("limit") limit?: string) {
+        const l = parseInt(limit || "20", 10);
+        return resOK(await this.groupService.getSuggestedChannels(req.user._id, isNaN(l) ? 20 : l));
+    }
+
     // @Get('/:roomId/group/msg/status/:messageId/:type')
     // async getMessageStatusGroup(
     //     @Req() req:any,

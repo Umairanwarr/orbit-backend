@@ -24,7 +24,8 @@ import {
     DeleteMessageType,
     MessageType,
     RoomType,
-    SocketEventsType
+    SocketEventsType,
+    GroupRoleType,
 } from "../../../core/utils/enums";
 import {GroupMessageStatusService} from "../../group_message_status/group_message_status.service";
 import {NotificationEmitterService} from "../../../common/notification_emitter/notification_emitter.service";
@@ -89,6 +90,21 @@ export class MessageChannelService {
         let isOrder = rM.rT == RoomType.Order
         let isGroup = rM.rT == RoomType.GroupChat
         let isBroadcast = rM.rT == RoomType.Broadcast
+        // If this is a Channel (group with extraData.isChannel = true), only admins/superAdmins can post
+        if (isGroup) {
+            try {
+                const settings = await this.groupSetting.findById(rM.rId);
+                const isChannel = settings && (settings as any)['extraData'] && (settings as any)['extraData']['isChannel'] === true;
+                if (isChannel) {
+                    const myMember = await this.groupMember.findOne({ rId: rM.rId, uId: dto.myUser._id });
+                    if (!myMember || myMember.gR === GroupRoleType.Member) {
+                        throw new ForbiddenException('Only channel admins can post');
+                    }
+                }
+            } catch (e) {
+                if (e instanceof ForbiddenException) throw e;
+            }
+        }
         let isExits = await this.messageService.isMessageExist(dto.localId);
         if (isExits) throw new ForbiddenException('Message already in database ForbiddenException');
         if (dto.replyToLocalId) {
@@ -203,19 +219,27 @@ export class MessageChannelService {
 
 
     async getRoomMessages(myId: string, roomId: string, dto: MessagesSearchDto) {
-        let isThere = await this.middlewareService.isThereRoomMember(
-            roomId,
-            myId,
-        );
+        const isThere = await this.middlewareService.isThereRoomMember(roomId, myId);
         if (!isThere) {
-            return {
-                docs: []
-            };
+            // Allow read-only access for public channels (groups marked as channel)
+            try {
+                const settings = await this.groupSetting.findById(roomId);
+                const isChannel = settings && (settings as any)['extraData'] && (settings as any)['extraData']['isChannel'] === true;
+                if (isChannel) {
+                    const res = await this.messageService.findAllMessagesAggregation(
+                        newMongoObjId(myId),
+                        newMongoObjId(roomId),
+                        dto,
+                    );
+                    return { docs: res };
+                }
+            } catch (e) {
+                // fall through to empty docs
+            }
+            return { docs: [] };
         }
-        let res = await this.messageService.findAllMessagesAggregation(newMongoObjId(myId), newMongoObjId(roomId), dto);
-        return {
-            docs: res
-        }
+        const res = await this.messageService.findAllMessagesAggregation(newMongoObjId(myId), newMongoObjId(roomId), dto);
+        return { docs: res };
     }
 
 //////////////////////////////////////////////////////////////////////////////////////utils//////////////////////////////////////////

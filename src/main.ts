@@ -102,27 +102,34 @@ async function bootstrap() {
   app.useWebSocketAdapter(redisIoAdapter);
   const port = process.env.PORT ?? 80;
 
-  // Configure static assets with CORS headers
-  app.useStaticAssets(join(root.path, "public"), {
-    setHeaders: (res, path, stat) => {
+  // Configure static assets with explicit URL prefixes and CORS headers
+  // 1) Serve the whole /public directory at root for HTML files (home.html, privacy-policy.html, etc.)
+  app.useStaticAssets(join(root.path, 'public'), {
+    setHeaders: (res, _path, _stat) => {
       res.set('Access-Control-Allow-Origin', '*');
       res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
       res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, admin-key');
-    }
+    },
   });
-  app.useStaticAssets(join(root.path, "public", "v-public"), {
-    setHeaders: (res, path, stat) => {
+
+  // 2) Serve media under /v-public prefix (e.g. /v-public/pic100-xxx.jpg)
+  app.useStaticAssets(join(root.path, 'public', 'v-public'), {
+    prefix: '/v-public',
+    setHeaders: (res, _path, _stat) => {
       res.set('Access-Control-Allow-Origin', '*');
       res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
       res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, admin-key');
-    }
+    },
   });
-  app.useStaticAssets(join(root.path, "public", "media"), {
-    setHeaders: (res, path, stat) => {
+
+  // 3) Serve media under /media prefix (if used)
+  app.useStaticAssets(join(root.path, 'public', 'media'), {
+    prefix: '/media',
+    setHeaders: (res, _path, _stat) => {
       res.set('Access-Control-Allow-Origin', '*');
       res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
       res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, admin-key');
-    }
+    },
   });
 
   await app.listen(port);

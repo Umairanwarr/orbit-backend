@@ -236,4 +236,28 @@ export class SocketIoGateway implements OnGatewayInit, OnGatewayConnection, OnGa
             console.error('Error leaving stream room:', error);
         }
     }
+
+    // Relay per-user call background data to all participants in the call room
+    @SubscribeMessage('call_background_share')
+    async callBackgroundShare(
+        @MessageBody() data: any,
+        @ConnectedSocket() client: Socket,
+    ) {
+        try {
+            let payload: any = data;
+            try {
+                payload = jsonDecoder(data);
+            } catch (_) {
+                // ignore non-JSON payloads
+            }
+            const roomId = payload?.roomId || data['roomId'];
+            if (!roomId) {
+                throw new BadRequestException('call_background_share: roomId is required');
+            }
+            this.io.to(roomId.toString()).emit('call_background_share', JSON.stringify(payload));
+        } catch (error) {
+            console.error('call_background_share handler error:', error);
+        }
+    }
+
 }

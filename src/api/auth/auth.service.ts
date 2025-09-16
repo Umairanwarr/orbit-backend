@@ -150,7 +150,7 @@ export class AuthService {
         socialId: profile.id,
         provider,
         registerStatus: appConfig.userRegisterStatus,
-        userImage: appConfig.userIcon,
+        userImage: profile.picture || appConfig.userIcon,
         verifiedAt: new Date(),
         registerMethod: dto.registerMethod,
       });
@@ -159,6 +159,20 @@ export class AuthService {
         user._id,
         LoyaltyPointsAction.SIGNUP
       );
+    } else {
+      // Update user profile picture from social login if available
+      try {
+        if (profile.picture && profile.picture !== user.userImage) {
+          console.log('🔐 Updating user profile picture:', profile.picture);
+          await this.userService.findByIdAndUpdate(user._id, {
+            userImage: profile.picture,
+          });
+          user.userImage = profile.picture;
+          console.log('🔐 Profile picture updated successfully');
+        }
+      } catch (e) {
+        console.error('🔐 Failed to update profile picture:', e);
+      }
     }
 
     let token = this._signJwt(user._id.toString(), dto.deviceId.toString());
@@ -167,6 +181,94 @@ export class AuthService {
       token,
       user,
     };
+  }
+
+  async auth0Login(dto: SocialLoginDto) {
+    const domain = this.configService.get<string>("AUTH0_DOMAIN") || process.env.AUTH0_DOMAIN;
+    if (!domain) {
+      throw new BadRequestException("AUTH0_DOMAIN is not configured");
+    }
+    const { accessToken } = dto;
+    if (!accessToken) {
+      throw new BadRequestException("accessToken is required");
+    }
+    try {
+      const response = await axios.get(`https://${domain}/userinfo`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const info = response.data || {};
+      console.log('🔐 Auth0 user info:', JSON.stringify(info, null, 2));
+      const sub: string = info.sub || ""; // e.g., google-oauth2|1234567890
+      const [providerKey, rawId] = sub.split("|");
+      const id = rawId || info.user_id || info.sid || info.oid;
+      const name = info.name || info.nickname || info.given_name || "Orbit User";
+      const email = (info.email || (id ? `${id}@${providerKey || "auth0"}.com` : null));
+      const picture = info.picture;
+      console.log('🔐 Extracted picture URL:', picture);
+
+      let method: RegisterMethod = RegisterMethod.google;
+      switch ((providerKey || "").toLowerCase()) {
+        case "google-oauth2":
+          method = RegisterMethod.google;
+          break;
+        case "facebook":
+          method = RegisterMethod.facebook;
+          break;
+        case "twitter":
+        case "twitter-oauth-2":
+          method = RegisterMethod.twitter;
+          break;
+        case "linkedin":
+        case "linkedin-openid":
+          method = RegisterMethod.linkedin as any;
+          break;
+        case "windowslive":
+        case "microsoft":
+        case "microsoft-account":
+          method = RegisterMethod.microsoft as any;
+          break;
+        case "yahoo":
+          method = RegisterMethod.yahoo as any;
+          break;
+        case "snapchat":
+          method = RegisterMethod.snapchat as any;
+          break;
+        default:
+          method = RegisterMethod.google;
+      }
+
+      dto.registerMethod = method;
+
+      const profile = {
+        id: id,
+        name: name,
+        email: (email || `${id}@${(providerKey || "auth0")}.com`).toLowerCase(),
+        picture: picture,
+      } as any;
+
+      const res = await this.handleSocialLogin(profile, method, dto);
+
+      // Create/replace device and sign access token like normal login
+      const access = await this.deleteDevicesAndCreateNew({
+        userId: res.user._id,
+        session: null,
+        language: dto.language,
+        platform: dto.platform as any,
+        ip: dto.ip,
+        deviceInfo: dto.deviceInfo as any,
+        pushKey: dto.pushKey,
+        userDeviceId: dto.deviceId,
+      });
+
+      await this._pushNotificationSubscribe(dto.pushKey, dto.platform as any);
+
+      return {
+        accessToken: access,
+        status: res.user.registerStatus,
+      };
+    } catch (error) {
+      throw new UnauthorizedException("Invalid Auth0 token");
+    }
   }
 
   async googleLogin(dto: SocialLoginDto) {
