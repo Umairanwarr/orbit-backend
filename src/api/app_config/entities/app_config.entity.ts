@@ -22,6 +22,7 @@ export interface IAppConfig {
     allowSendMedia: boolean,
     allowDesktopLogin: boolean,
     privacyUrl: string,
+    privacyPolicyText?: string,
     googlePayUrl: string,
     webChatUrl: string,
     windowsStoreUrl: string,
@@ -44,6 +45,26 @@ export interface IAppConfig {
     supportIcon: string,
     broadcastIcon: string,
     userIcon: string,
+    liveWatermarkUrl?: string,
+    activeLocales?: string[],
+    // Verification system
+    verificationFee?: number,
+    verificationFeeMonthly?: number,
+    verificationFeeSixMonths?: number,
+    verificationFeeYearly?: number,
+    verificationInstructions?: string,
+    // Admin panel login password (hashed)
+    adminPanelPasswordHash?: string,
+    // Ads
+    adSubmissionFee?: number,
+    announcementText?: string,
+    announcementUpdatedAt?: number,
+    professions?: string[],
+    // Marketplace Promotions
+    marketplacePromotionWeeklyFee?: number,
+    marketplacePromotionMonthlyFee?: number,
+    // Driver Subscription
+    driverSubscriptionFee?: number,
 }
 
 export const AppConfigSchema = new mongoose.Schema(
@@ -60,6 +81,7 @@ export const AppConfigSchema = new mongoose.Schema(
         allowCreateBroadcast: {type: Boolean, default: true},
         allowDesktopLogin: {type: Boolean, default: true},
         privacyUrl: {type: String, default: "https://api.superupdev.online/privacy-policy"},
+        privacyPolicyText: {type: String, default: null},
         googlePayUrl: {type: String, default: null},
         webChatUrl: {type: String, default: null},
         windowsStoreUrl: {type: String, default: null},
@@ -67,7 +89,7 @@ export const AppConfigSchema = new mongoose.Schema(
         appleStoreUrl: {type: String, default: null},
         maxExpireEmailTime: {type: Number, default: 5}, //5 minutes for rest password
         userRegisterStatus: {type: String, default: RegisterStatus.accepted},
-        userIcon: {type: String, default: "default_user_image.png"},
+        userIcon: {type: String, default: "/v-public/default_user_image.png"},
         ///v chat
         callTimeout: {type: Number, default: 30000},
         roomIcons: {
@@ -84,9 +106,73 @@ export const AppConfigSchema = new mongoose.Schema(
         maxForward: {type: Number, default: 10},
         maxChatMediaSize: {type: Number, default: 1024 * 1024 * 100},// 100 mbs
         allowCall: {type: Boolean, default: true},
-        groupIcon: {type: String, default: "default_group_image.png"},
-        supportIcon: {type: String, default: "default_support_image.png"},
-        broadcastIcon: {type: String, default: "default_broadcast_image.png"},
+        groupIcon: {type: String, default: "/v-public/default_group_image.png"},
+        supportIcon: {type: String, default: "/v-public/default_support_image.png"},
+        broadcastIcon: {type: String, default: "/v-public/default_broadcast_image.png"},
+        liveWatermarkUrl: { type: String, default: null },
+        activeLocales: { type: [String], default: null },
+        // Verification system
+        verificationFee: { type: Number, default: 0 },
+        verificationFeeMonthly: { type: Number, default: 0 },
+        verificationFeeSixMonths: { type: Number, default: 0 },
+        verificationFeeYearly: { type: Number, default: 0 },
+        verificationInstructions: { type: String, default: null },
+        // Admin panel login password (hashed)
+        adminPanelPasswordHash: { type: String, default: null },
+        // Ads
+        adSubmissionFee: { type: Number, default: 0 },
+        announcementText: { type: String, default: null },
+        announcementUpdatedAt: { type: Number, default: null },
+        professions: {
+            type: [String],
+            default: [
+                'Services',
+                'Entertainment',
+                'Massage',
+                'Software Engineer',
+                'Developer',
+                'Data Scientist',
+                'Product Manager',
+                'Project Manager',
+                'UI/UX Designer',
+                'Designer',
+                'Doctor',
+                'Nurse',
+                'Dentist',
+                'Pharmacist',
+                'Teacher',
+                'Student',
+                'Business Owner',
+                'Entrepreneur',
+                'Lawyer',
+                'Accountant',
+                'Marketing',
+                'Sales',
+                'Customer Support',
+                'Mechanic',
+                'Driver',
+                'Chef',
+                'Photographer',
+                'Artist',
+                'Musician',
+                'Athlete',
+                'Real Estate Agent',
+                'Architect',
+                'Civil Engineer',
+                'Electrician',
+                'Plumber',
+                'Farmer',
+                'Consultant',
+                'Journalist',
+                'Writer',
+                'Other',
+            ]
+        },
+        // Marketplace Promotions
+        marketplacePromotionWeeklyFee: { type: Number, default: 100 },
+        marketplacePromotionMonthlyFee: { type: Number, default: 350 },
+        // Driver Subscription
+        driverSubscriptionFee: { type: Number, default: 0 },
     },
     {
         timestamps: true

@@ -4,7 +4,8 @@
  * MIT license that can be found in the LICENSE file.
  */
 
-import { IsString, IsOptional, IsBoolean, IsArray, MaxLength, MinLength, IsNumber, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsArray, ArrayMinSize, MaxLength, MinLength, IsNumber, Min, Max, IsMongoId } from 'class-validator';
+import { Type } from 'class-transformer';
 import { IUser } from '../../user_modules/user/entities/user.entity';
 
 export class CreateLiveStreamDto {
@@ -27,14 +28,21 @@ export class CreateLiveStreamDto {
     requiresApproval?: boolean;
 
     @IsOptional()
-    @IsArray()
-    @IsString({ each: true })
-    allowedViewers?: string[];
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    joinPrice?: number;
 
     @IsOptional()
     @IsArray()
     @IsString({ each: true })
-    tags?: string[];
+    allowedViewers?: string[];
+
+    // Require at least one tag (we use the first tag as the category)
+    @IsArray()
+    @ArrayMinSize(1)
+    @IsString({ each: true })
+    tags: string[];
 
     @IsOptional()
     @IsString()
@@ -42,6 +50,53 @@ export class CreateLiveStreamDto {
 
     // Set by middleware
     myUser?: IUser;
+}
+
+export class UpdateRecordingPriceDto {
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    price?: number; // 0 or undefined => free
+
+    // Set by middleware
+    myUser?: IUser;
+}
+
+export class InviteUserToStreamDto {
+    @IsString()
+    streamId: string;
+
+    @IsString()
+    userId: string; // invitee user id
+
+    @IsOptional()
+    @IsString()
+    requestType?: 'viewer' | 'cohost';
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(18)
+    age?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    amountPaid?: number;
+
+    myUser?: IUser; // set by middleware
+}
+
+export class RespondToInviteDto {
+    @IsString()
+    requestId: string;
+
+    @IsString()
+    action: 'accept' | 'reject';
+
+    myUser?: IUser; // set by middleware
 }
 
 export class JoinLiveStreamDto {
@@ -68,6 +123,7 @@ export class SendLiveStreamMessageDto {
         giftName: string;
         giftImage: string;
         giftPrice: number;
+        currency?: string;
     };
 
     // Set by middleware
@@ -125,8 +181,26 @@ export class LiveStreamFilterDto {
     @IsString()
     sortOrder?: 'asc' | 'desc';
 
+    @IsOptional()
+    @Type(() => Number)
     page?: number = 1;
+    @IsOptional()
+    @Type(() => Number)
     limit?: number = 20;
+}
+
+export class UpdateRecordingPrivacyDto {
+    @IsOptional()
+    @IsBoolean()
+    isPrivate?: boolean;
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    allowedViewers?: string[];
+
+    // Set by middleware
+    myUser?: IUser;
 }
 
 export class RemoveParticipantDto {
@@ -182,6 +256,22 @@ export class RequestJoinStreamDto {
     @IsString()
     streamId: string;
 
+    @IsOptional()
+    @IsString()
+    requestType?: 'viewer' | 'cohost';
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(18)
+    age?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    amountPaid?: number;
+
     // Set by middleware
     myUser?: IUser;
 }
@@ -195,4 +285,78 @@ export class RespondToJoinRequestDto {
 
     // Set by middleware
     myUser?: IUser;
+}
+
+export class StartRecordingDto {
+    @IsOptional()
+    @IsString()
+    streamId?: string; // Set by controller from URL params
+
+    @IsOptional()
+    @IsString()
+    quality?: string; // Recording quality (720p, 1080p, etc.)
+
+    // Set by middleware
+    myUser?: IUser;
+}
+
+export class StopRecordingDto {
+    @IsOptional()
+    @IsString()
+    streamId?: string; // Set by controller from URL params
+
+    @IsString()
+    recordingUrl: string;
+
+    @IsOptional()
+    @IsNumber()
+    duration?: number; // Duration in seconds
+
+    @IsOptional()
+    @IsNumber()
+    fileSize?: number; // File size in bytes
+
+    @IsOptional()
+    @IsString()
+    thumbnailUrl?: string;
+
+    // Set by middleware
+    myUser?: IUser;
+}
+
+export class RecordingFilterDto {
+    @IsOptional()
+    @IsString()
+    search?: string;
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    tags?: string[];
+
+    @IsOptional()
+    @IsString()
+    streamerId?: string;
+
+    @IsOptional()
+    @IsString()
+    status?: 'processing' | 'completed' | 'failed';
+
+    @IsOptional()
+    @IsString()
+    sortBy?: 'recordedAt' | 'viewCount' | 'duration' | 'likesCount';
+
+    @IsOptional()
+    @IsString()
+    sortOrder?: 'asc' | 'desc';
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    page?: number = 1;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    limit?: number = 20;
 }

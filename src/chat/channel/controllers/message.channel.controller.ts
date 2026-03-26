@@ -28,6 +28,11 @@ import {MongoRoomIdDto} from "../../../core/common/dto/mongo.room.id.dto";
 import {resOK} from "../../../core/utils/res.helpers";
 import {MessagesSearchDto} from "../../message/dto/messages_search_dto";
 import {RoomIdAndMsgIdDto} from "../../../core/common/dto/room.id.and.msg.id.dto";
+import { IsArray, ArrayNotEmpty, IsString } from 'class-validator';
+
+// DTOs
+class VoteBodyDto { @IsArray() @ArrayNotEmpty() @IsString({each:true}) optionIds!: string[] }
+class OfferRespondBodyDto { @IsString() status!: string }
 
 
 @UseGuards(VerifiedAuthGuard)
@@ -37,6 +42,32 @@ export class MessageChannelController {
         private readonly channelMessageService: MessageChannelService
     ) {
     }
+
+  @Post('/:messageId/poll/vote')
+  async voteInPoll(
+    @Req() req:any,
+    @Param() dto: RoomIdAndMsgIdDto,
+    @Body() body: VoteBodyDto,
+  ) {
+    dto.myUser = req.user;
+    return resOK(await this.channelMessageService.voteInPoll(dto, body.optionIds));
+  }
+
+  @Get('/:messageId/poll/results')
+  async getPollResults(@Req() req:any, @Param() dto: RoomIdAndMsgIdDto) {
+    dto.myUser = req.user;
+    return resOK(await this.channelMessageService.getPollResults(dto));
+  }
+
+  @Post('/:messageId/offer/respond')
+  async respondToOffer(
+    @Req() req:any,
+    @Param() dto: RoomIdAndMsgIdDto,
+    @Body() body: OfferRespondBodyDto,
+  ) {
+    dto.myUser = req.user;
+    return resOK(await this.channelMessageService.respondToOffer(dto, body.status));
+  }
 
 
     @UseInterceptors(
@@ -91,6 +122,28 @@ export class MessageChannelController {
         return resOK(await this.channelMessageService.getMyAllStarMessages(dto));
     }
 
+    @Post('/:messageId/pin')
+    async pinRoomMessage(@Req() req: any, @Param() dto: RoomIdAndMsgIdDto) {
+        dto.myUser = req.user;
+        return resOK(await this.channelMessageService.pinRoomMessage(dto));
+    }
+
+    @Delete('/:messageId/pin')
+    async unpinRoomMessage(@Req() req: any, @Param() dto: RoomIdAndMsgIdDto) {
+        dto.myUser = req.user;
+        return resOK(await this.channelMessageService.unpinRoomMessage(dto));
+    }
+
+    @Get('/pinned')
+    async getPinnedRoomMessage(@Req() req: any, @Param() dto: MongoRoomIdDto) {
+        return resOK(
+            await this.channelMessageService.getPinnedRoomMessage(
+                req.user._id,
+                dto.roomId,
+            ),
+        );
+    }
+
 
 
     @Get('/')
@@ -112,7 +165,6 @@ export class MessageChannelController {
     async editMessage(@Req() req:any, @Param() dto: RoomIdAndMsgIdDto, @Body('content') content: string) {
         dto.myUser = req.user;
         if (!content || content.trim().length === 0) {
-            throw new BadRequestException('Content is required');
         }
         return resOK(await this.channelMessageService.editMessage(dto, content.trim()));
     }

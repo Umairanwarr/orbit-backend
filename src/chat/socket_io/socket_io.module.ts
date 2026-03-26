@@ -5,6 +5,7 @@
  */
 
 import {Module} from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
 import {SocketIoService} from './socket_io.service';
 import {SocketIoGateway} from './socket_io.gateway';
 import {CallMemberModule} from "../call_modules/call_member/call_member.module";
@@ -15,6 +16,7 @@ import { MessageModule } from "../message/message.module";
 import { RoomMiddlewareModule } from "../room_middleware/room_middleware.module";
 import {UserDeviceModule} from "../../api/user_modules/user_device/user_device.module";
 import {CallHistoryModule} from "../call_modules/call_history/call_history.module";
+import { LiveStreamSchema, LiveStreamParticipantSchema } from "../../api/live_stream/schemas/live_stream.schema";
 
 @Module({
     providers: [SocketIoGateway, SocketIoService],
@@ -27,6 +29,10 @@ import {CallHistoryModule} from "../call_modules/call_history/call_history.modul
         CallHistoryModule,
         CallMemberModule,
         UserDeviceModule,
+        MongooseModule.forFeature([
+            { name: 'LiveStream', schema: LiveStreamSchema },
+            { name: 'LiveStreamParticipant', schema: LiveStreamParticipantSchema },
+        ]),
     ],
     exports: [SocketIoService],
 })

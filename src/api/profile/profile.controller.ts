@@ -29,6 +29,7 @@ import {
   UpdateMyPasswordDto,
   UpdateMyPhoneNumberDto,
   UpdateMyPrivacyDto,
+  UpdateMyProfessionDto,
 } from "./dto/update.my.name.dto";
 import UpdatePasswordDto from "./dto/update_password_dto";
 import { VerifiedAuthGuard } from "../../core/guards/verified.auth.guard";
@@ -103,6 +104,33 @@ export class ProfileController {
     return resOK(await this.profileService.getAdminNotification(dto));
   }
 
+  // ================= Two-Factor Authentication (Email) =================
+  @UseGuards(VerifiedAuthGuard)
+  @Get('/two-factor')
+  async getTwoFactorStatus(@Req() req: any) {
+    return resOK(await this.profileService.getTwoFactorStatus(req.user));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/two-factor/request')
+  async requestTwoFactor(@Req() req: any) {
+    return resOK(await this.profileService.requestTwoFactorCode(req.user));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/two-factor/enable')
+  async enableTwoFactor(@Req() req: any, @Body('code') code: string) {
+    if (!code) throw new BadRequestException('code is required');
+    return resOK(await this.profileService.enableTwoFactor(req.user, code));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/two-factor/disable')
+  async disableTwoFactor(@Req() req: any, @Body('code') code: string) {
+    if (!code) throw new BadRequestException('code is required');
+    return resOK(await this.profileService.disableTwoFactor(req.user, code));
+  }
+
   @UseGuards(VerifiedAuthGuard)
   @Get("/device")
   async getMyDevice(@Req() req: any) {
@@ -145,6 +173,16 @@ export class ProfileController {
   async updateMyBio(@Req() req: any, @Body() dto: UpdateMyBioDto) {
     dto.myUser = req.user;
     return resOK(await this.profileService.updateMyBio(dto));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Patch("/profession")
+  async updateMyProfession(
+    @Req() req: any,
+    @Body() dto: UpdateMyProfessionDto
+  ) {
+    dto.myUser = req.user;
+    return resOK(await this.profileService.updateMyProfession(dto));
   }
 
   @UseGuards(VerifiedAuthGuard)
@@ -230,6 +268,12 @@ export class ProfileController {
     return resOK(await this.profileService.getPublicProfile(dto));
   }
 
+  @UseGuards(VerifiedAuthGuard)
+  @Get('/resolve-phone')
+  async resolvePhone(@Query('phone') phone: string) {
+    return resOK(await this.profileService.resolvePhoneToUserId(phone));
+  }
+
   // Balance management endpoints
   @UseGuards(VerifiedAuthGuard)
   @Get("/balance")
@@ -257,6 +301,28 @@ export class ProfileController {
         formattedBalance: "$0.00",
       });
     }
+  }
+
+  // ================= Emergency Contacts =================
+  @UseGuards(VerifiedAuthGuard)
+  @Get('/emergency-contacts')
+  async getMyEmergencyContacts(@Req() req: any) {
+    return resOK(await this.profileService.getMyEmergencyContacts(req.user));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/emergency-contacts')
+  async addMyEmergencyContact(
+    @Req() req: any,
+    @Body() body: { name: string; phone: string; relation?: string },
+  ) {
+    return resOK(await this.profileService.addMyEmergencyContact(req.user, body));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Delete('/emergency-contacts/:id')
+  async deleteMyEmergencyContact(@Req() req: any, @Param('id') id: string) {
+    return resOK(await this.profileService.deleteMyEmergencyContact(req.user, id));
   }
 
   @UseGuards(VerifiedAuthGuard)
@@ -410,5 +476,111 @@ export class ProfileController {
   @Get("/loyalty-points")
   async getUserLoyaltyPoints(@Req() req: any) {
     return resOK(await this.profileService.getUserLoyaltyPoints(req.user));
+  }
+
+  // ================= Wallet Withdraw Requests =================
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/wallet/withdraw-requests')
+  async createWithdrawRequest(
+    @Req() req: any,
+    @Body() body: { amount: number; phone: string },
+  ) {
+    return resOK(await this.profileService.createWithdrawRequest(req.user, body));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Get('/wallet/withdraw-requests')
+  async getMyWithdrawRequests(@Req() req: any, @Query() dto: any) {
+    return resOK(await this.profileService.getMyWithdrawRequests(req.user, dto));
+  }
+
+  // ============== Verification Requests ==============
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/verification/requests')
+  async createVerificationRequest(
+    @Req() req: any,
+    @Body() body: {
+      idImageUrl: string;
+      selfieImageUrl: string;
+      paymentReference?: string;
+      paymentScreenshotUrl?: string;
+      feePlan?: 'monthly' | 'six_months' | 'yearly';
+    },
+  ) {
+    const doc = await this.profileService.createVerificationRequest(req.user, body);
+    return resOK(doc);
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Get('/verification/requests/my-latest')
+  async getMyLatestVerificationRequest(@Req() req: any) {
+    return resOK(await this.profileService.getMyLatestVerificationRequest(req.user));
+  }
+
+  // ==================== Ads ====================
+  // Initiate paid ad submission via M-Pesa STK
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/ads/submit/initiate')
+  async initiateAdSubmission(
+    @Req() req: any,
+    @Body()
+    body: {
+      title: string;
+      imageUrl: string;
+      linkUrl?: string;
+      phone: string;
+    },
+  ) {
+    return resOK(await this.profileService.initiateAdSubmission(req.user, body));
+  }
+
+  // Wallet-based ad submission (deducts from balance)
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/ads/submit/wallet')
+  async submitAdWithWallet(
+    @Req() req: any,
+    @Body()
+    body: {
+      title: string;
+      imageUrl: string;
+      linkUrl?: string;
+    },
+  ) {
+    return resOK(await this.profileService.submitAdWithWallet(req.user, body));
+  }
+
+  // Check status of an ad submission (polling)
+  @UseGuards(VerifiedAuthGuard)
+  @Get('/ads/submissions/:id/status')
+  async getAdSubmissionStatus(@Req() req: any, @Param('id') id: string) {
+    return resOK(await this.profileService.getAdSubmissionStatus(req.user, id));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/ads')
+  async createAd(
+    @Req() req: any,
+    @Body()
+    body: {
+      title: string;
+      imageUrl: string;
+      linkUrl?: string;
+    },
+  ) {
+    return resOK(await this.profileService.createAd(req.user, body));
+  }
+
+  // Public: approved ads for slider
+  @Get('/ads/approved')
+  async getApprovedAds(@Query('limit') limit?: number) {
+    const l = Number(limit) || 10;
+    return resOK(await this.profileService.getApprovedAds(l));
+  }
+
+  // My submitted ads
+  @UseGuards(VerifiedAuthGuard)
+  @Get('/ads/my')
+  async getMyAds(@Req() req: any, @Query() dto: Object) {
+    return resOK(await this.profileService.getMyAds(req.user, dto));
   }
 }

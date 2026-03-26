@@ -39,3 +39,6 @@ lerna-debug.log*
 .env.production
 firebase-adminsdk.json
 AuthKey.p8
+
+# Ignore public directory
+/public

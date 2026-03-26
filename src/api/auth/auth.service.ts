@@ -50,6 +50,12 @@ import { MailEmitterService } from "../mail/mail.emitter.service";
 import { SocialLoginDto } from "./dto/social-login.dto";
 import axios from "axios";
 import * as crypto from "crypto";
+import { RefreshTokenDto } from "./dto/refresh_token.dto";
+import { authenticator } from 'otplib';
+import { toDataURL } from 'qrcode';
+import { TwoFactorCodeDto } from "./dto/two_factor_digit.dto";
+import { TwoFactorLoginDto } from "./dto/two_factor_login.dto";
+import { SmsService } from "../../common/sms/sms.service";
 
 @Injectable()
 export class AuthService {
@@ -61,10 +67,523 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly userDevice: UserDeviceService,
     private readonly mailEmitterService: MailEmitterService,
+    private readonly smsService: SmsService,
     private readonly userCountryService: UserCountryService,
     private readonly notificationEmitterService: NotificationEmitterService,
     private readonly loyaltyPointsService: LoyaltyPointsService
-  ) {}
+  ) { }
+
+  private _normalizePhoneNumber(raw: string) {
+    let v = (raw || '').toString().trim();
+    v = v.replace(/[\s\-()]/g, '');
+    if (!v) return '';
+    if (v.startsWith('00')) v = '+' + v.substring(2);
+    if (!v.startsWith('+')) v = '+' + v;
+    if (v === '+') return '';
+    return v;
+  }
+
+
+  async generateTwoFactorSecret(user: IUser) {
+    // 1. Generate a new secret key
+    const secret = authenticator.generateSecret();
+
+    // 2. Create the OTP Auth URL (app name + user email)
+    const otpAuthUrl = authenticator.keyuri(user.email, 'Orbit', secret);
+
+    await this.userService.findByIdAndUpdate(user._id, {
+      twoFactorSecret: secret,
+    });
+    const qrCodeDataUrl = await toDataURL(otpAuthUrl);
+    return { qrCodeDataUrl };
+  }
+
+  async sendLinkRegister(identifier: string, isDev: boolean, registrationData?: any) {
+    const methodRaw = (registrationData?.method || RegisterMethod.email) as any;
+    const method =
+      methodRaw === RegisterMethod.phone ? RegisterMethod.phone : RegisterMethod.email;
+
+    const normalizedIdentifier =
+      method === RegisterMethod.phone
+        ? this._normalizePhoneNumber(identifier)
+        : (identifier || '').toString().trim().toLowerCase();
+
+    if (!normalizedIdentifier) {
+      throw new BadRequestException(
+        method === RegisterMethod.phone ? 'Phone number is required' : 'Email is required',
+      );
+    }
+
+    // Do not allow if user already exists
+    const existingUser = await this.userService.findOneByEmail(
+      normalizedIdentifier,
+      'email'
+    );
+    if (existingUser) {
+      throw new BadRequestException(i18nApi.userAlreadyRegisterString);
+    }
+
+    if (method === RegisterMethod.phone) {
+      const byPhone = await this.userService.findOne(
+        { phoneNumber: normalizedIdentifier },
+        '_id'
+      );
+      if (byPhone) {
+        throw new BadRequestException(i18nApi.userAlreadyRegisterString);
+      }
+    }
+
+    // Generate signed token carrying registration data (expires in 15 minutes)
+    const token = this.jwtService.sign(
+      {
+        type: 'register',
+        email: normalizedIdentifier,
+        method,
+        phoneNumber: method === RegisterMethod.phone ? normalizedIdentifier : null,
+        fullName: (registrationData?.fullName || '').toString(),
+        password: (registrationData?.password || '').toString(),
+        profession: (registrationData?.profession || '').toString(),
+      },
+      { expiresIn: '15m' }
+    );
+    if (!global.tempOtpStorage) {
+      global.tempOtpStorage = new Map();
+    }
+    // Also store minimal state in-memory for backward compatibility
+    global.tempOtpStorage.set(normalizedIdentifier, {
+      code: token,
+      sendAt: new Date(),
+      expired: false,
+      verified: false,
+      registrationData: {
+        ...(registrationData || {}),
+        method,
+        phoneNumber: method === RegisterMethod.phone ? normalizedIdentifier : null,
+      },
+    });
+
+    // Build verification link (serve from backend public host)
+    const backendBase = (process.env.BACKEND_PUBLIC_URL || 'https://api.orbit.ke').replace(/\/$/, '');
+    const verifyLink = `${backendBase}/verify-email.html?token=${token}&email=${encodeURIComponent(
+      normalizedIdentifier,
+    )}`;
+
+    if (method === RegisterMethod.phone) {
+      if (!this.smsService.isReady) {
+        throw new BadRequestException('SMS provider is not configured');
+      }
+      await this.smsService.sendSms(
+        normalizedIdentifier,
+        `Orbit verification link: ${verifyLink}`,
+      );
+      return isDev
+        ? `Verification link (dev mode): ${verifyLink}`
+        : 'Verification link has been sent to your phone number';
+    }
+
+    // Send email containing the verification link
+    const tempUser: any = {
+      email: normalizedIdentifier,
+      fullName: registrationData?.fullName || 'New User',
+      _id: null,
+      lastMail: null,
+    };
+    await this.mailEmitterService.sendVerificationLink(tempUser, verifyLink, isDev);
+
+    return isDev
+      ? `Verification link (dev mode): ${verifyLink}`
+      : 'Verification link has been sent to your email';
+  }
+
+  async verifyLinkRegister(identifier: string, token: string) {
+    const identifierRaw = (identifier || '').toString().trim();
+    console.log('[VERIFY] Starting verification for identifier:', identifierRaw);
+
+    // 1) Try stateless JWT verification path first
+    let jwtData: any | null = null;
+    try {
+      const decoded: any = this.jwtService.verify(token);
+      const tokenMethod =
+        decoded?.method === RegisterMethod.phone ? RegisterMethod.phone : RegisterMethod.email;
+      const normalizedProvided =
+        tokenMethod === RegisterMethod.phone
+          ? this._normalizePhoneNumber(identifierRaw)
+          : identifierRaw.toLowerCase();
+      const normalizedToken =
+        tokenMethod === RegisterMethod.phone
+          ? this._normalizePhoneNumber((decoded.email || '').toString())
+          : ((decoded.email || '').toString().toLowerCase());
+
+      if (decoded?.type === 'register' && normalizedToken === normalizedProvided) {
+        jwtData = decoded;
+        console.log('[VERIFY] JWT decoded successfully:', {
+          identifier: jwtData.email,
+          method: jwtData.method,
+          hasPassword: !!jwtData.password,
+        });
+      }
+    } catch (err) {
+      console.log('[VERIFY] JWT verification failed:', err.message);
+    }
+
+    // If user already exists, return early regardless of path
+    const normalizedLookup = jwtData?.method === RegisterMethod.phone
+      ? this._normalizePhoneNumber(identifierRaw)
+      : identifierRaw.toLowerCase();
+
+    const preExisting = await this.userService.findOneByEmail(normalizedLookup, 'email');
+    if (preExisting) {
+      console.log('[VERIFY] User already exists:', normalizedLookup);
+      return 'Account already created. Please login.';
+    }
+
+    if (jwtData?.method === RegisterMethod.phone) {
+      const existingByPhone = await this.userService.findOne(
+        { phoneNumber: this._normalizePhoneNumber(jwtData.phoneNumber || normalizedLookup) },
+        '_id'
+      );
+      if (existingByPhone) {
+        console.log('[VERIFY] User already exists by phone:', normalizedLookup);
+        return 'Account already created. Please login.';
+      }
+    }
+
+    if (jwtData) {
+      // Create user using data from JWT
+      const regData = {
+        fullName: (jwtData.fullName || '').toString(),
+        password: (jwtData.password || '').toString(),
+        profession: (jwtData.profession || '').toString(),
+        method: jwtData.method === RegisterMethod.phone ? RegisterMethod.phone : RegisterMethod.email,
+        phoneNumber: jwtData.phoneNumber ? this._normalizePhoneNumber(jwtData.phoneNumber) : null,
+      };
+      if (!regData.fullName || !regData.password) {
+        throw new BadRequestException('Registration data missing in token. Please register again.');
+      }
+      const profession = regData.profession?.toString?.().trim?.() || null;
+      const uniqueCode = await this.generateUniqueCode();
+      console.log('[VERIFY] Creating user from JWT data:', { identifier: normalizedLookup, fullName: regData.fullName, method: regData.method });
+      const user = await this.userService.create({
+        email: normalizedLookup,
+        fullName: regData.fullName,
+        fullNameEn: remove(regData.fullName),
+        password: regData.password,
+        profession,
+        registerStatus: RegisterStatus.accepted,
+        registerMethod: regData.method,
+        uniqueCode: uniqueCode,
+        userImage: '',
+        bio: null,
+        phoneNumber: regData.method === RegisterMethod.phone ? regData.phoneNumber : null,
+        lastSeenAt: new Date(),
+        // @ts-ignore
+        lastMail: {},
+        address: null,
+      });
+      console.log('[VERIFY] User created successfully:', { userId: user._id, identifier: user.email, method: regData.method });
+      // Optionally set temp storage for short time
+      if (!global.tempOtpStorage) global.tempOtpStorage = new Map();
+      global.tempOtpStorage.set(normalizedLookup, {
+        code: token,
+        sendAt: new Date(),
+        expired: true,
+        verified: true,
+        registrationData: regData,
+      });
+      return { message: 'Account created successfully! Please login with your email and password.', userId: user._id };
+    }
+
+    // 2) Fallback to in-memory code path (legacy) if JWT not valid or not present
+    if (!global.tempOtpStorage) {
+      global.tempOtpStorage = new Map();
+    }
+    const otpData = global.tempOtpStorage.get(normalizedLookup);
+    if (!otpData) {
+      throw new BadRequestException(i18nApi.noCodeHasBeenSendToYouToVerifyYourEmailString);
+    }
+    const config = await this.appConfigService.getConfig();
+    const min = parseInt(date.subtract(new Date(), otpData.sendAt).toMinutes().toString(), 10);
+    if (otpData.expired || min > config.maxExpireEmailTime) {
+      throw new BadRequestException(i18nApi.codeHasBeenExpiredString);
+    }
+    if (otpData.code !== token) {
+      throw new BadRequestException('Invalid token!');
+    }
+
+    // Auto-create user account from stored registration data
+    const regData = otpData.registrationData || {};
+    if (!regData.fullName || !regData.password) {
+      throw new BadRequestException('Registration data incomplete. Please register again.');
+    }
+    const profession = (regData.profession || '').toString().trim() || null;
+    const regMethod = regData.method === RegisterMethod.phone ? RegisterMethod.phone : RegisterMethod.email;
+    const phoneNumber = regMethod === RegisterMethod.phone
+      ? this._normalizePhoneNumber(regData.phoneNumber || normalizedLookup)
+      : null;
+    const uniqueCode = await this.generateUniqueCode();
+    const newUser = await this.userService.create({
+      email: normalizedLookup,
+      fullName: regData.fullName,
+      fullNameEn: remove(regData.fullName),
+      password: regData.password,
+      profession,
+      registerStatus: RegisterStatus.accepted,
+      registerMethod: regMethod,
+      uniqueCode: uniqueCode,
+      userImage: '',
+      bio: null,
+      phoneNumber,
+      lastSeenAt: new Date(),
+      // @ts-ignore
+      lastMail: {},
+      address: null,
+    });
+    // Mark verified
+    global.tempOtpStorage.set(normalizedLookup, { ...otpData, expired: true, verified: true, registrationData: otpData.registrationData });
+    return { message: 'Account created successfully! Please login with your email and password.', userId: newUser._id };
+  }
+
+  // turn off two factor authentication
+  async turnOffTwoFactorAuth(user: IUser) {
+    await this.userService.findByIdAndUpdate(user._id, {
+      twoFactorEnabled: false,
+      twoFactorSecret: null,
+    });
+  }
+
+  async turnOnTwoFactorAuth(user: IUser, dto: TwoFactorCodeDto) {
+    const userWithSecret = await this.userService.findById(user._id, "+twoFactorSecret");
+
+    const isCodeValid = authenticator.verify({
+      token: dto.code,
+      secret: userWithSecret.twoFactorSecret,
+    });
+
+    if (!isCodeValid) {
+      throw new BadRequestException('Invalid authentication code.');
+    }
+
+    await this.userService.findByIdAndUpdate(user._id, {
+      twoFactorEnabled: true,
+    });
+
+    return { message: '2-Step Verification has been enabled.' };
+  }
+
+  async login(dto: LoginDto, isDev: boolean) {
+    const method = dto.method === RegisterMethod.phone ? RegisterMethod.phone : RegisterMethod.email;
+    const identifierRaw = (dto.email || '').toString().trim();
+    const identifier =
+      method === RegisterMethod.phone
+        ? this._normalizePhoneNumber(identifierRaw)
+        : identifierRaw.toLowerCase();
+
+    if (!identifier) {
+      throw new BadRequestException(
+        method === RegisterMethod.phone ? 'Phone number is required' : 'Email is required',
+      );
+    }
+
+    console.log('[LOGIN] Attempting login for identifier:', identifier);
+    let foundedUser: IUser | null = null;
+    try {
+      foundedUser = await this.userService.findOneByEmailOrThrow(
+        identifier,
+        "+password userDevice lastMail banTo email registerStatus deletedAt twoFactorEnabled twoFactorSecret"
+      );
+      console.log('[LOGIN] User found in database:', { identifier: foundedUser.email, id: foundedUser._id });
+    } catch (err) {
+      console.log('[LOGIN] User not found in database, checking temp storage:', identifier);
+      // If user not found, but email verification was completed with stored registration data,
+      // auto-create the account now and proceed with login
+      if (!global.tempOtpStorage) {
+        global.tempOtpStorage = new Map();
+      }
+      const otpData = global.tempOtpStorage.get(identifier);
+      console.log('[LOGIN] Temp storage data:', otpData ? { verified: otpData.verified, hasRegData: !!otpData.registrationData } : 'null');
+      if (otpData && otpData.verified && otpData.registrationData) {
+        const regData = otpData.registrationData;
+        if (!regData.fullName || !regData.password) {
+          // Re-throw with a clearer message for phone vs email
+          if (method === RegisterMethod.phone) {
+            throw new BadRequestException('Phone number not found');
+          }
+          throw err;
+        }
+        // Ensure provided password matches the registration password
+        if (regData.password !== dto.password) {
+          throw new BadRequestException(i18nApi.invalidLoginDataString);
+        }
+        const uniqueCode = await this.generateUniqueCode();
+        const profession = (regData.profession || '').toString().trim() || null;
+        await this.userService.create({
+          email: identifier,
+          fullName: regData.fullName,
+          fullNameEn: remove(regData.fullName),
+          password: regData.password,
+          profession,
+          registerStatus: RegisterStatus.accepted,
+          registerMethod: method,
+          uniqueCode: uniqueCode,
+          userImage: '',
+          bio: null,
+          phoneNumber: method === RegisterMethod.phone ? identifier : null,
+          lastSeenAt: new Date(),
+          // @ts-ignore
+          lastMail: {},
+          address: null,
+        });
+        global.tempOtpStorage.delete(identifier);
+        foundedUser = await this.userService.findOneByEmailOrThrow(
+          identifier,
+          "+password userDevice lastMail banTo email registerStatus deletedAt twoFactorEnabled twoFactorSecret"
+        );
+      } else {
+        // Re-throw with a clearer message for phone vs email
+        if (method === RegisterMethod.phone) {
+          throw new BadRequestException('Phone number not found');
+        }
+        throw err;
+      }
+    }
+    await this.comparePassword(dto.password, foundedUser.password);
+    if (foundedUser.banTo) {
+      throw new BadRequestException(i18nApi.yourAccountBlockedString);
+    }
+    if (foundedUser.twoFactorEnabled) {
+      return resOK({
+        twoFactorRequired: true,
+        userId: foundedUser._id,
+      });
+    }
+    if (foundedUser.twoFactorEnabled) {
+      return resOK({
+        twoFactorRequired: true,
+        userId: foundedUser._id,
+      });
+    }
+
+    const tokens = await this._finalizeLogin(foundedUser, dto);
+    return resOK(tokens);
+
+
+  }
+
+  async authenticateTwoFactor(userId: string, dto: TwoFactorLoginDto) {
+    const user = await this.userService.findById(
+      userId,
+      "+twoFactorSecret registerStatus"
+    );
+    if (!user) {
+      throw new UnauthorizedException('User not found.');
+    }
+
+    const isCodeValid = authenticator.verify({
+      token: dto.code,
+      secret: user.twoFactorSecret,
+    });
+
+    if (!isCodeValid) {
+      throw new UnauthorizedException('Invalid authentication code.');
+    }
+
+    // If the code is valid, finalize the login and return tokens
+    const tokens = await this._finalizeLogin(user, dto);
+    return resOK(tokens);
+  }
+
+  // async login(dto: LoginDto, isDev: boolean) {
+  //   let foundedUser: IUser = await this.userService.findOneByEmailOrThrow(
+  //     dto.email,
+  //     "+password userDevice lastMail banTo email registerStatus deletedAt isTwoFactorEnabled twoFactorSecret"
+  //   );
+  //   await this.comparePassword(dto.password, foundedUser.password);
+  //   if (foundedUser.banTo) {
+  //     throw new BadRequestException(i18nApi.yourAccountBlockedString);
+  //   }
+  //   if (foundedUser.isTwoFactorEnabled) {
+  //     return resOK({
+  //       twoFactorRequired: true,
+  //       userId: foundedUser._id,
+  //     });
+  //   }
+  //   // if (foundedUser.deletedAt) {
+  //   //     await this.userService.findByIdAndUpdate(foundedUser._id, {
+  //   //         deletedAt: null
+  //   //     })
+  //   // }
+
+  //   let countryData = await geoIp.lookup(dto.ip);
+  //   let countryId;
+  //   if (countryData) {
+  //     countryId = await this.userCountryService.setUserCountry(
+  //       foundedUser._id,
+  //       countryData.country
+  //     );
+  //   }
+  //   await this.userService.findByIdAndUpdate(foundedUser._id, {
+  //     address: countryData,
+  //     countryId: countryId,
+  //   });
+
+  //   // remeber me implementation
+  //   let refreshToken: string | undefined = undefined;
+
+  //   let oldDevice = await this.userDevice.findOne({
+  //     uId: foundedUser._id,
+  //     userDeviceId: dto.deviceId,
+  //   });
+
+  //   if (oldDevice) {
+  //     const updatePayload: any = {
+  //       pushProvider: this._getVPushProvider(dto.pushKey),
+  //       pushKey: dto.pushKey,
+  //     };
+
+  //     if (dto.rememberMe) {
+  //       refreshToken = this._signRefreshJwt(foundedUser._id.toString(), oldDevice._id.toString());
+  //       updatePayload.refreshToken = refreshToken;
+  //     }
+
+  //     await this.userDevice.findByIdAndUpdate(oldDevice._id, updatePayload);
+
+  //     let accessToken = this._signJwt(
+  //       foundedUser._id.toString(),
+  //       oldDevice._id.toString()
+  //     );
+
+  //     return resOK({
+  //       accessToken: accessToken,
+  //       refreshToken: refreshToken,
+  //       status: foundedUser.registerStatus,
+  //     });
+  //   }
+  //   // this is new device
+  //   let mongoDeviceId = newMongoObjId().toString();
+  //   let access = this._signJwt(foundedUser._id.toString(), mongoDeviceId);
+  //   if (dto.rememberMe) {
+  //     refreshToken = this._signRefreshJwt(foundedUser._id.toString(), mongoDeviceId);
+  //     // Hash this before storing
+  //   }
+  //   await this.userDevice.create({
+  //     _id: mongoDeviceId,
+  //     userDeviceId: dto.deviceId,
+  //     uId: foundedUser._id,
+  //     language: dto.language,
+  //     platform: dto.platform,
+  //     pushProvider: this._getVPushProvider(dto.pushKey),
+  //     dIp: dto.ip,
+  //     deviceInfo: dto.deviceInfo,
+  //     pushKey: dto.pushKey,
+  //     refreshToken: refreshToken,
+  //   });
+  //   await this._pushNotificationSubscribe(dto.pushKey, dto.platform);
+  //   return resOK({
+  //     accessToken: access, refreshToken: refreshToken,
+  //     status: foundedUser.registerStatus,
+  //   });
+  // }
+
 
   async resetPasswordWithLink(
     email: string,
@@ -120,8 +639,9 @@ export class AuthService {
       resetPasswordOTPExpiry: resetTokenExpiry,
     });
 
-    // build reset link
-    const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}&email=${usr.email}`;
+    // build reset link -> point to dynamic route served by backend
+    const frontendBase = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const resetLink = `${frontendBase}/reset-password?token=${resetToken}&email=${encodeURIComponent(usr.email)}`;
 
     // send email with link
     await this.mailEmitterService.sendResetPasswordLink(usr, resetLink, isDev);
@@ -150,7 +670,7 @@ export class AuthService {
         socialId: profile.id,
         provider,
         registerStatus: appConfig.userRegisterStatus,
-        userImage: profile.picture || appConfig.userIcon,
+        userImage: appConfig.userIcon,
         verifiedAt: new Date(),
         registerMethod: dto.registerMethod,
       });
@@ -159,118 +679,17 @@ export class AuthService {
         user._id,
         LoyaltyPointsAction.SIGNUP
       );
-    } else {
-      // Update user profile picture from social login if available
-      try {
-        if (profile.picture && profile.picture !== user.userImage) {
-          console.log('🔐 Updating user profile picture:', profile.picture);
-          await this.userService.findByIdAndUpdate(user._id, {
-            userImage: profile.picture,
-          });
-          user.userImage = profile.picture;
-          console.log('🔐 Profile picture updated successfully');
-        }
-      } catch (e) {
-        console.error('🔐 Failed to update profile picture:', e);
-      }
     }
 
-    let token = this._signJwt(user._id.toString(), dto.deviceId.toString());
+    // Use proper device handling like _finalizeLogin does
+    const tokens = await this._finalizeLogin(user, dto);
     return {
       success: true,
-      token,
+      token: tokens.accessToken,
       user,
     };
   }
-
-  async auth0Login(dto: SocialLoginDto) {
-    const domain = this.configService.get<string>("AUTH0_DOMAIN") || process.env.AUTH0_DOMAIN;
-    if (!domain) {
-      throw new BadRequestException("AUTH0_DOMAIN is not configured");
-    }
-    const { accessToken } = dto;
-    if (!accessToken) {
-      throw new BadRequestException("accessToken is required");
-    }
-    try {
-      const response = await axios.get(`https://${domain}/userinfo`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const info = response.data || {};
-      console.log('🔐 Auth0 user info:', JSON.stringify(info, null, 2));
-      const sub: string = info.sub || ""; // e.g., google-oauth2|1234567890
-      const [providerKey, rawId] = sub.split("|");
-      const id = rawId || info.user_id || info.sid || info.oid;
-      const name = info.name || info.nickname || info.given_name || "Orbit User";
-      const email = (info.email || (id ? `${id}@${providerKey || "auth0"}.com` : null));
-      const picture = info.picture;
-      console.log('🔐 Extracted picture URL:', picture);
-
-      let method: RegisterMethod = RegisterMethod.google;
-      switch ((providerKey || "").toLowerCase()) {
-        case "google-oauth2":
-          method = RegisterMethod.google;
-          break;
-        case "facebook":
-          method = RegisterMethod.facebook;
-          break;
-        case "twitter":
-        case "twitter-oauth-2":
-          method = RegisterMethod.twitter;
-          break;
-        case "linkedin":
-        case "linkedin-openid":
-          method = RegisterMethod.linkedin as any;
-          break;
-        case "windowslive":
-        case "microsoft":
-        case "microsoft-account":
-          method = RegisterMethod.microsoft as any;
-          break;
-        case "yahoo":
-          method = RegisterMethod.yahoo as any;
-          break;
-        case "snapchat":
-          method = RegisterMethod.snapchat as any;
-          break;
-        default:
-          method = RegisterMethod.google;
-      }
-
-      dto.registerMethod = method;
-
-      const profile = {
-        id: id,
-        name: name,
-        email: (email || `${id}@${(providerKey || "auth0")}.com`).toLowerCase(),
-        picture: picture,
-      } as any;
-
-      const res = await this.handleSocialLogin(profile, method, dto);
-
-      // Create/replace device and sign access token like normal login
-      const access = await this.deleteDevicesAndCreateNew({
-        userId: res.user._id,
-        session: null,
-        language: dto.language,
-        platform: dto.platform as any,
-        ip: dto.ip,
-        deviceInfo: dto.deviceInfo as any,
-        pushKey: dto.pushKey,
-        userDeviceId: dto.deviceId,
-      });
-
-      await this._pushNotificationSubscribe(dto.pushKey, dto.platform as any);
-
-      return {
-        accessToken: access,
-        status: res.user.registerStatus,
-      };
-    } catch (error) {
-      throw new UnauthorizedException("Invalid Auth0 token");
-    }
-  }
-
+  // Check out this bro for login with google, facebook and twitter
   async googleLogin(dto: SocialLoginDto) {
     const { accessToken } = dto;
     try {
@@ -323,6 +742,166 @@ export class AuthService {
       );
     } catch (error) {
       throw new UnauthorizedException("Invalid Twitter token");
+    }
+  }
+  // Adding new methods also
+  // Add these methods to your auth.service.ts
+
+  async linkedinLogin(dto: SocialLoginDto) {
+    const { accessToken } = dto;
+    try {
+      // LinkedIn uses the /userinfo endpoint for OpenID Connect
+      const response = await axios.get("https://api.linkedin.com/v2/userinfo", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const profile = response.data;
+      return this.handleSocialLogin(
+        {
+          id: profile.sub, // 'sub' is the standard OIDC field for user ID
+          name: profile.name,
+          email: profile.email,
+        },
+        RegisterMethod.linkedin,
+        dto
+      );
+    } catch (error) {
+      throw new UnauthorizedException("Invalid LinkedIn token");
+    }
+  }
+
+  async microsoftLogin(dto: SocialLoginDto) {
+    const { accessToken } = dto;
+    try {
+      // Microsoft Graph API endpoint
+      const response = await axios.get("https://graph.microsoft.com/v1.0/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const profile = response.data;
+      return this.handleSocialLogin(
+        {
+          id: profile.id,
+          name: profile.displayName,
+          email: profile.mail || profile.userPrincipalName, // Fallback to userPrincipalName
+        },
+        RegisterMethod.microsoft,
+        dto
+      );
+    } catch (error) {
+      throw new UnauthorizedException("Invalid Microsoft token");
+    }
+  }
+
+  async redditLogin(dto: SocialLoginDto) {
+    const { accessToken } = dto;
+    try {
+      const response = await axios.get("https://oauth.reddit.com/api/v1/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const profile = response.data;
+      // IMPORTANT: Reddit API does not provide an email address.
+      // We create a placeholder email, similar to your Twitter implementation.
+      return this.handleSocialLogin(
+        {
+          id: profile.id,
+          name: profile.name,
+          email: `${profile.name}@reddit.com`,
+        },
+        RegisterMethod.reddit,
+        dto
+      );
+    } catch (error) {
+      throw new UnauthorizedException("Invalid Reddit token");
+    }
+  }
+
+  async instagramLogin(dto: SocialLoginDto) {
+    const { accessToken } = dto;
+    try {
+      // Instagram Basic Display API
+      const response = await axios.get(
+        `https://graph.instagram.com/me?fields=id,username&access_token=${accessToken}`
+      );
+      const profile = response.data;
+      // IMPORTANT: Instagram's Basic Display API does NOT provide email.
+      return this.handleSocialLogin(
+        {
+          id: profile.id,
+          name: profile.username,
+          email: `${profile.username}@instagram.com`, // Placeholder email
+        },
+        RegisterMethod.instagram,
+        dto
+      );
+    } catch (error) {
+      throw new UnauthorizedException("Invalid Instagram token");
+    }
+  }
+
+  async auth0Login(dto: SocialLoginDto) {
+    const domain = this.configService.get<string>('AUTH0_DOMAIN') || process.env.AUTH0_DOMAIN;
+    if (!domain) {
+      throw new BadRequestException('AUTH0_DOMAIN is not configured');
+    }
+    try {
+      const response = await axios.get(`https://${domain}/userinfo`, {
+        headers: { Authorization: `Bearer ${dto.accessToken}` },
+      });
+      const data = response.data || {};
+      const sub: string = data.sub || '';
+      const { method, id } = this._mapAuth0Sub(sub);
+      dto.registerMethod = method;
+
+      const name = data.name || data.nickname || (data.email ? data.email.split('@')[0] : id);
+      const email = data.email || this._placeholderEmailForMethod(method, id);
+
+      return this.handleSocialLogin(
+        { id, name, email },
+        method,
+        dto,
+      );
+    } catch (error) {
+      throw new UnauthorizedException('Invalid Auth0 token');
+    }
+  }
+
+  private _mapAuth0Sub(sub: string): { method: RegisterMethod; id: string } {
+    const [prov, rest] = (sub || '').split('|');
+    const id = rest || sub || '';
+    switch (prov) {
+      case 'google-oauth2':
+        return { method: RegisterMethod.google, id };
+      case 'facebook':
+        return { method: RegisterMethod.facebook, id };
+      case 'twitter':
+      case 'twitter-oauth-2':
+        return { method: RegisterMethod.twitter, id };
+      case 'linkedin':
+        return { method: RegisterMethod.linkedin, id };
+      case 'windowslive':
+        return { method: RegisterMethod.microsoft, id };
+      case 'yahoo':
+        return { method: RegisterMethod.yahoo, id };
+      case 'snapchat':
+        return { method: RegisterMethod.snapchat, id };
+      case 'apple':
+        return { method: RegisterMethod.apple, id };
+      case 'auth0':
+        return { method: RegisterMethod.email, id };
+      default:
+        return { method: RegisterMethod.email, id };
+    }
+  }
+
+  private _placeholderEmailForMethod(method: RegisterMethod, id: string): string {
+    switch (method) {
+      case RegisterMethod.twitter:
+        return `${id}@twitter.com`;
+      case RegisterMethod.instagram:
+        return `${id}@instagram.com`;
+      case RegisterMethod.reddit:
+        return `${id}@reddit.com`;
+      default:
+        return `${id}@${method}.com`;
     }
   }
 
@@ -408,81 +987,58 @@ export class AuthService {
     return true;
   }
 
-  async login(dto: LoginDto, isDev: boolean) {
-    let foundedUser: IUser = await this.userService.findOneByEmailOrThrow(
-      dto.email,
-      "+password userDevice lastMail banTo email registerStatus deletedAt"
-    );
-    await this.comparePassword(dto.password, foundedUser.password);
-    if (foundedUser.banTo) {
-      throw new BadRequestException(i18nApi.yourAccountBlockedString);
-    }
-    // if (foundedUser.deletedAt) {
-    //     await this.userService.findByIdAndUpdate(foundedUser._id, {
-    //         deletedAt: null
-    //     })
-    // }
+  async refreshAccessToken(dto: RefreshTokenDto) {
+    try {
 
-    let countryData = await geoIp.lookup(dto.ip);
-    let countryId;
-    if (countryData) {
-      countryId = await this.userCountryService.setUserCountry(
-        foundedUser._id,
-        countryData.country
-      );
-    }
-    await this.userService.findByIdAndUpdate(foundedUser._id, {
-      address: countryData,
-      countryId: countryId,
-    });
+      const payload = this.jwtService.verify(dto.refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
+      const { userId, deviceId } = payload;
 
-    let oldDevice = await this.userDevice.findOne({
-      uId: foundedUser._id,
-      userDeviceId: dto.deviceId,
-    });
-    if (oldDevice) {
-      await this.userDevice.findByIdAndUpdate(oldDevice._id, {
-        pushProvider: this._getVPushProvider(dto.pushKey),
-        pushKey: dto.pushKey,
-      });
-      let access = this._signJwt(
-        foundedUser._id.toString(),
-        oldDevice._id.toString()
-      );
-      return resOK({
-        accessToken: access,
-        status: foundedUser.registerStatus,
-      });
+      const device = await this.userDevice.findById(deviceId, "+refreshToken");
+
+      if (!device || !device.refreshToken) {
+        throw new UnauthorizedException('Access Denied. Please log in again.');
+      }
+      if (dto.refreshToken !== device.refreshToken) {
+        throw new UnauthorizedException('Access Denied. Token has been invalidated.');
+      }
+
+      const newAccessToken = this._signJwt(userId, deviceId);
+
+      return { accessToken: newAccessToken };
+
+    } catch (error) {
+      throw new UnauthorizedException('Refresh token expired or invalid. Please log in again.');
     }
-    // this is new device
-    let mongoDeviceId = newMongoObjId().toString();
-    let access = this._signJwt(foundedUser._id.toString(), mongoDeviceId);
-    await this.userDevice.create({
-      _id: mongoDeviceId,
-      userDeviceId: dto.deviceId,
-      uId: foundedUser._id,
-      language: dto.language,
-      platform: dto.platform,
-      pushProvider: this._getVPushProvider(dto.pushKey),
-      dIp: dto.ip,
-      deviceInfo: dto.deviceInfo,
-      pushKey: dto.pushKey,
-    });
-    await this._pushNotificationSubscribe(dto.pushKey, dto.platform);
-    return resOK({
-      accessToken: access,
-      status: foundedUser.registerStatus,
-    });
   }
 
   async register(dto: RegisterDto) {
     let countryData = await geoIp.lookup(dto.ip);
+    const identifier =
+      dto.method === RegisterMethod.phone
+        ? this._normalizePhoneNumber(dto.email)
+        : (dto.email || '').toString().trim().toLowerCase();
+
+    if (!identifier) {
+      throw new BadRequestException(
+        dto.method === RegisterMethod.phone ? 'Phone number is required' : 'Email is required',
+      );
+    }
+
     let foundedUser: IUser = await this.userService.findOneByEmail(
-      dto.email,
+      identifier,
       "email"
     );
     if (foundedUser) {
       throw new BadRequestException(i18nApi.userAlreadyRegisterString);
+    }
+
+    if (dto.method === RegisterMethod.phone) {
+      const byPhone = await this.userService.findOne({ phoneNumber: identifier }, '_id');
+      if (byPhone) {
+        throw new BadRequestException(i18nApi.userAlreadyRegisterString);
+      }
     }
 
     // Check if email is verified via OTP
@@ -490,26 +1046,28 @@ export class AuthService {
       global.tempOtpStorage = new Map();
     }
 
-    const otpData = global.tempOtpStorage.get(dto.email.toLowerCase());
+    const otpData = global.tempOtpStorage.get(identifier);
     if (!otpData || !otpData.verified) {
       throw new BadRequestException(
-        "Email must be verified before registration"
+        "Email/phone must be verified before registration"
       );
     }
     const uniqueCode = await this.generateUniqueCode();
     let appConfig = await this.appConfigService.getConfig();
 
     let createdUser: IUser = await this.userService.create({
-      email: dto.email,
+      email: identifier,
       fullName: dto.fullName,
       registerStatus: appConfig.userRegisterStatus,
       bio: null,
+      profession: ((dto as any).profession || '').toString().trim() || null,
       uniqueCode: uniqueCode,
       fullNameEn: remove(dto.fullName),
       registerMethod: dto.method,
       address: countryData,
       password: dto.password,
       lastSeenAt: new Date(),
+      phoneNumber: dto.method === RegisterMethod.phone ? identifier : null,
       // @ts-ignore
       lastMail: {},
       userImage: appConfig.userIcon,
@@ -558,7 +1116,7 @@ export class AuthService {
 
     // Clean up temporary OTP data
     if (global.tempOtpStorage) {
-      global.tempOtpStorage.delete(dto.email.toLowerCase());
+      global.tempOtpStorage.delete(identifier);
     }
 
     return {
@@ -712,15 +1270,27 @@ export class AuthService {
     // Use direct MongoDB query to bypass validation for authentication
     let user: IUser = await this.userService.findByIdForAuth(
       jwtDecodeRes.userId,
-      "fullName fullNameEn verifiedAt userImage userType banTo deletedAt registerStatus"
+      "fullName fullNameEn phoneNumber verifiedAt userImage userType banTo deletedAt registerStatus roles userPrivacy rideBannedAt rideBanReason rideUnbannedAt"
     );
     if (!user) throw new ForbiddenException(i18nApi.whileAuthCanFindYouString);
     user._id = user._id.toString();
     this.userLoginValidate(user);
-    let device = await this.userDevice.findById(
-      jwtDecodeRes.deviceId,
-      "_id platform"
-    );
+    
+    // Try to find device by MongoDB _id first (new tokens)
+    let device = null;
+    try {
+      device = await this.userDevice.findById(
+        jwtDecodeRes.deviceId,
+        "_id platform"
+      );
+    } catch (err) {
+      // If findById fails (invalid ObjectId), try userDeviceId (old tokens)
+      device = await this.userDevice.findOne(
+        { userDeviceId: jwtDecodeRes.deviceId },
+        "_id platform"
+      );
+    }
+    
     if (!device)
       throw new HttpException(
         i18nApi.userDeviceSessionEndDeviceDeletedString,
@@ -755,7 +1325,7 @@ export class AuthService {
     mailType: MailType,
     isDev: boolean,
     session?
-  ) {}
+  ) { }
 
   async generateUniqueCode(): Promise<number> {
     let uniqueCode: number;
@@ -796,6 +1366,16 @@ export class AuthService {
     });
   }
 
+  private _signRefreshJwt(userId: string, deviceId: string): string {
+    return this.jwtService.sign(
+      { userId, deviceId },
+      {
+        secret: process.env.JWT_REFRESH_SECRET,
+        expiresIn: '30d',
+      }
+    );
+  }
+
   private async deleteDevicesAndCreateNew(dto: {
     userId: string;
     session?;
@@ -827,6 +1407,67 @@ export class AuthService {
       dto.session
     );
     return access;
+  }
+
+  private async _finalizeLogin(user: IUser, dto: LoginDto | TwoFactorLoginDto | SocialLoginDto) {
+    // --- This is the logic moved from your original login function ---
+
+    // 1. GeoIP and Country data (optional but good for consistency)
+    let countryData = await geoIp.lookup(dto.ip);
+    if (countryData) {
+      const countryId = await this.userCountryService.setUserCountry(
+        user._id,
+        countryData.country,
+      );
+      await this.userService.findByIdAndUpdate(user._id, {
+        address: countryData,
+        countryId: countryId,
+      });
+    }
+
+    // 2. Device handling and token generation
+    let refreshToken: string | undefined = undefined;
+    const oldDevice = await this.userDevice.findOne({
+      uId: user._id,
+      userDeviceId: dto.deviceId,
+    });
+
+    if (oldDevice) {
+      const updatePayload: any = {
+        pushProvider: this._getVPushProvider(dto.pushKey),
+        pushKey: dto.pushKey,
+      };
+      if (dto.rememberMe) {
+        refreshToken = this._signRefreshJwt(user._id.toString(), oldDevice._id.toString());
+        updatePayload.refreshToken = refreshToken; // You should hash this!
+      }
+      await this.userDevice.findByIdAndUpdate(oldDevice._id, updatePayload);
+      const accessToken = this._signJwt(user._id.toString(), oldDevice._id.toString());
+      return { accessToken, refreshToken, status: user.registerStatus };
+    }
+
+    // This is a new device
+    const mongoDeviceId = newMongoObjId().toString();
+    const accessToken = this._signJwt(user._id.toString(), mongoDeviceId);
+    if (dto.rememberMe) {
+      refreshToken = this._signRefreshJwt(user._id.toString(), mongoDeviceId);
+    }
+
+    await this.userDevice.create({
+      _id: mongoDeviceId,
+      userDeviceId: dto.deviceId,
+      uId: user._id,
+      language: dto.language,
+      platform: dto.platform,
+      pushProvider: this._getVPushProvider(dto.pushKey),
+      dIp: dto.ip,
+      deviceInfo: dto.deviceInfo,
+      pushKey: dto.pushKey,
+      refreshToken: refreshToken, // You should hash this!
+    });
+
+    await this._pushNotificationSubscribe(dto.pushKey, dto.platform);
+    return { accessToken, refreshToken, status: user.registerStatus };
   }
 
   private _jwtVerify(token: string): JwtDecodeRes {

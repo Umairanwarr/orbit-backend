@@ -60,6 +60,70 @@ export class CallService {
     ) {
     }
 
+    private _callMsgLocalId(roomId: any, callId: any, status: CallStatus): string {
+        const r = roomId?.toString?.() ?? String(roomId);
+        const c = callId?.toString?.() ?? String(callId);
+        return `call_${c}_${r}_${status}`;
+    }
+
+    private _isDuplicateKeyError(err: any): boolean {
+        return err?.code === 11000 || (typeof err?.message === 'string' && err.message.includes('E11000'));
+    }
+
+    private async _createMessageIdempotent(dto: SendMessageDto, session?: any) {
+        try {
+            return await this.messageService.create(dto, session);
+        } catch (e) {
+            if (this._isDuplicateKeyError(e)) {
+                const existing = await this.messageService.getByLocalId(dto.localId);
+                if (existing) return existing;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Switch an active call between audio-only and audio+video.
+     * This updates the call record and notifies all call participants (and the room) via socket.
+     */
+    async switchAudioVideo(dto: MongoCallIdDto, withVideo: boolean) {
+        if (typeof withVideo !== 'boolean') {
+            throw new BadRequestException('withVideo must be boolean');
+        }
+
+        const call = await this.callHistory.findOne({ _id: dto.callId, participants: dto.myUser._id });
+        if (!call) {
+            throw new BadRequestException('Call not found or you are not a participant');
+        }
+
+        if (call.callStatus !== CallStatus.Ring && call.callStatus !== CallStatus.InCall) {
+            throw new BadRequestException('Call is not active');
+        }
+
+        await this.callHistory.findByIdAndUpdate(dto.callId, { withVideo });
+
+        const payload = {
+            callId: dto.callId,
+            roomId: call.roomId.toString(),
+            withVideo,
+            userId: dto.myUser._id.toString(),
+        };
+
+        // Notify anyone currently joined to the call room (covers web/desktop where sockets join roomId)
+        this.socket.io
+            .to(call.roomId.toString())
+            .emit(SocketEventsType.v1OnSwitchAudioVideo, JSON.stringify(payload));
+
+        // Also notify each participant directly (covers cases where not joined to room yet)
+        for (const participantId of (call.participants || []).map((p) => p.toString())) {
+            this.socket.io
+                .to(participantId)
+                .emit(SocketEventsType.v1OnSwitchAudioVideo, JSON.stringify(payload));
+        }
+
+        return { done: true };
+    }
+
     /**
      * Creates a new call. If it's a group call, it immediately sends a notification
      * to the group. For a single (direct) call, it checks for any existing active calls
@@ -77,14 +141,43 @@ export class CallService {
         if (!appConfig.allowCall) {
             throw new BadRequestException(i18nApi.callNotAllowedString);
         }
-        let activeRing = await this.userService.findById(dto.myUser._id,"userGlobalCallStatus");
-        if (activeRing.userGlobalCallStatus) {
-            if(activeRing.userGlobalCallStatus.callId){
-                return {callId: activeRing.userGlobalCallStatus.callId}
+        // Debug: trace incoming createCall request context
+        try {
+            console.log(
+                `[CallService.createCall] Incoming request: roomId=${dto.roomId}, user=${dto.myUser._id}, withVideo=${dto.withVideo}, rT=${roomMember.rT}`,
+            );
+        } catch (_) {}
+
+        // If the user already has an active call, only reuse it if it's for the SAME room.
+        // This prevents accidentally attaching a 1:1 call request to an existing group call (or another room).
+        const activeRing = await this.userService.findById(dto.myUser._id, "userGlobalCallStatus");
+        if (activeRing.userGlobalCallStatus && activeRing.userGlobalCallStatus.callId) {
+            const existingCallId = activeRing.userGlobalCallStatus.callId;
+            try {
+                const existing = await this.callHistory.findOne({ _id: existingCallId });
+                if (existing && (existing.callStatus === CallStatus.Ring || existing.callStatus === CallStatus.InCall)) {
+                    if (existing.roomId.toString() !== dto.roomId.toString()) {
+                        // Active call belongs to a different room; reject to avoid cross-room mixups
+                        console.warn(
+                            `[CallService.createCall] User ${dto.myUser._id} already in active call ${existingCallId} for room ${existing.roomId}. Requested room ${dto.roomId} denied.`,
+                        );
+                        throw new BadRequestException('You already have an active call in another room');
+                    }
+                    // Same room: return the existing callId (idempotent behavior)
+                    console.log(
+                        `[CallService.createCall] Reusing existing call ${existingCallId} for same room ${dto.roomId}`,
+                    );
+                    return { callId: existingCallId };
+                }
+            } catch (e) {
+                // If any error occurs while checking existing call, ignore and proceed to create a fresh call
+                console.warn('[CallService.createCall] Failed to verify existing active call:', e?.toString?.());
             }
         }
+
         // If it's a GroupChat, create a group call notification message and return.
         if (roomMember.rT == RoomType.GroupChat) {
+            try { console.log(`[CallService.createCall] GroupChat detected. roomId=${dto.roomId}`); } catch (_) {}
             let callId = await this.createGroupCallNotify(dto, roomMember);
             return {callId};
         }
@@ -95,7 +188,29 @@ export class CallService {
         }
 
 
-        let peerUser = await this.userService.findByIdOrThrow(roomMember.pId, "userGlobalCallStatus");
+        let peerUser = await this.userService.findByIdOrThrow(roomMember.pId, "userGlobalCallStatus userPrivacy");
+
+        // Enforce callee call privacy:
+        // 1) Deny-list takes precedence: if caller is in callee's callBlockedUsers, block the call
+        // 2) If callPermission is not public, require caller to be in allow-list
+        const viewerId = dto.myUser?._id?.toString?.() ?? String(dto.myUser?._id);
+        const callPerm = (peerUser as any)?.userPrivacy?.callPermission as string | undefined;
+        const allowList = (peerUser as any)?.userPrivacy?.callAllowedUsers as string[] | undefined;
+        const blockList = (peerUser as any)?.userPrivacy?.callBlockedUsers as string[] | undefined;
+
+        if (Array.isArray(blockList) && blockList.map(String).includes(String(viewerId))) {
+            throw new BadRequestException('User has blocked your calls');
+        }
+
+        if (callPerm && callPerm !== 'public') {
+            const peerId = (peerUser as any)?._id?.toString?.() ?? String((peerUser as any)?._id);
+            const allowed = Array.isArray(allowList) && allowList.length > 0
+                ? allowList.map(String).includes(viewerId) || viewerId === peerId
+                : false;
+            if (!allowed) {
+                throw new BadRequestException('User does not allow calls');
+            }
+        }
 
         if (peerUser.userGlobalCallStatus && peerUser.userGlobalCallStatus.roomId) {
             if (dto.roomId != peerUser.userGlobalCallStatus.roomId.toString()) {
@@ -137,6 +252,7 @@ export class CallService {
         // Prepare a "missed call" message for timeout scenario.
         const callType = dto.withVideo ? 'Video Call' : 'Audio Call';
         const missedCallMsgDto = getMsgDtoObj({
+            localId: this._callMsgLocalId(dto.roomId, callId, CallStatus.Timeout),
             rId: dto.roomId,
             mT: MessageType.Call,
             att: {
@@ -171,6 +287,11 @@ export class CallService {
             roomType: RoomType.Single,
 
         });
+        try {
+            console.log(
+                `[CallService.ringForSingle] Created single call=${call._id} roomId=${dto.roomId} withVideo=${dto.withVideo} participants=${[dto.myUser._id, peerId].join(',')}`,
+            );
+        } catch (_) {}
         await this.callMemberService.create({
             callId: call._id,
             userId: dto.myUser._id,
@@ -196,7 +317,7 @@ export class CallService {
             .emit(
                 SocketEventsType.v1OnNewCall,
                 JSON.stringify({
-                    roomId: dto.roomId,
+                    roomId: dto.roomId.toString(),
                     callId: call._id,
                     withVideo: dto.withVideo,
                     callerName: dto.myUser.fullName,
@@ -210,6 +331,7 @@ export class CallService {
 
         // Create a ring call message in the room with invitation details for clients to join
         const ringMsgDto = getMsgDtoObj({
+            localId: this._callMsgLocalId(dto.roomId, call._id, CallStatus.Ring),
             rId: dto.roomId,
             mT: MessageType.Call,
             att: {
@@ -224,7 +346,7 @@ export class CallService {
             user: dto.myUser,
         });
 
-        const newMessage = await this.messageService.create(ringMsgDto);
+        const newMessage = await this._createMessageIdempotent(ringMsgDto);
         this.socket.io
             .to(dto.roomId.toString())
             .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(newMessage));
@@ -268,10 +390,14 @@ export class CallService {
      * Cancels a call that is in 'Ring' status. Only the caller can cancel the call.
      */
     async cancelCall(dto: MongoCallIdDto, call: ICallHistory) {
-        // Update the call status to 'Canceled'.
-        await this.callHistory.findByIdAndUpdate(call._id, {
-            callStatus: CallStatus.Canceled,
-        });
+        // Idempotent: only the first transition Ring -> Canceled wins.
+        const updated = await this.callHistory.findOneAndUpdate(
+            { _id: call._id, callStatus: CallStatus.Ring } as any,
+            { callStatus: CallStatus.Canceled } as any,
+        );
+        if (!updated) {
+            return 'Call canceled';
+        }
         let isGroup = call.roomType == RoomType.GroupChat
         if (isGroup) {
             await this.notificationService.groupRingNotify({
@@ -289,6 +415,7 @@ export class CallService {
             // Create a missed call message for group
             const callType = call.withVideo ? 'Video Call' : 'Audio Call';
             const missedCallMsgDto = getMsgDtoObj({
+                localId: this._callMsgLocalId(call.roomId, call._id, CallStatus.Canceled),
                 rId: call.roomId,
                 mT: MessageType.Call,
                 att: {
@@ -302,7 +429,7 @@ export class CallService {
             });
 
             // Create and send the missed call message
-            const newMessage = await this.messageService.create(missedCallMsgDto);
+            const newMessage = await this._createMessageIdempotent(missedCallMsgDto);
             this.socket.io
                 .to(call.roomId.toString())
                 .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(newMessage));
@@ -322,6 +449,7 @@ export class CallService {
             // Create a missed call message for the callee
             const callType = call.withVideo ? 'Video Call' : 'Audio Call';
             const missedCallMsgDto = getMsgDtoObj({
+                localId: this._callMsgLocalId(call.roomId, call._id, CallStatus.Canceled),
                 rId: call.roomId,
                 mT: MessageType.Call,
                 att: {
@@ -335,7 +463,7 @@ export class CallService {
             });
 
             // Create and send the missed call message
-            const newMessage = await this.messageService.create(missedCallMsgDto);
+            const newMessage = await this._createMessageIdempotent(missedCallMsgDto);
             this.socket.io
                 .to(call.roomId.toString())
                 .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(newMessage));
@@ -354,23 +482,26 @@ export class CallService {
      */
     async endCallForSingle(dto: MongoCallIdDto, call: ICallHistory) {
         const current = new Date();
-        // Update the call to 'Finished' and record the end time.
-        await Promise.all([
-            this.callHistory.findByIdAndUpdate(dto.callId, {
-                callStatus: CallStatus.Finished,
-                endAt: current,
+        // Idempotent: only the first transition InCall -> Finished wins.
+        const updated = await this.callHistory.findOneAndUpdate(
+            { _id: call._id, callStatus: CallStatus.InCall } as any,
+            { callStatus: CallStatus.Finished, endAt: current } as any,
+        );
+        if (!updated) {
+            return 'Call ended';
+        }
+
+        this.socket.io.to(call.roomId.toString()).emit(
+            SocketEventsType.v1OnCallEnded,
+            JSON.stringify({
+                callId: dto.callId,
+                roomId: call.roomId.toString(),
             }),
-            this.socket.io.to(call.roomId.toString()).emit(
-                SocketEventsType.v1OnCallEnded,
-                JSON.stringify({
-                    callId: dto.callId,
-                    roomId: call.roomId,
-                }),
-            ),
-        ]);
+        );
 
         // Create a message indicating the call has finished.
         const finishedMsgDto = getMsgDtoObj({
+            localId: this._callMsgLocalId(call.roomId, call._id, CallStatus.Finished),
             rId: call.roomId,
             mT: MessageType.Call,
             att: {
@@ -384,7 +515,7 @@ export class CallService {
         });
 
         // Persist the message in DB and notify all clients in the room.
-        const newMessage = await this.messageService.create(finishedMsgDto);
+        const newMessage = await this._createMessageIdempotent(finishedMsgDto);
         this.socket.io
             .to(call.roomId.toString())
             .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(newMessage));
@@ -402,18 +533,10 @@ export class CallService {
 
         // If not found, try to find the call by ID only (for invited users)
         if (!call) {
-            call = await this.callHistory.findOne({_id: dto.callId});
-            if (!call) {
-                throw new BadRequestException('Call not found with ID: ' + dto.callId);
-            }
-
-            // For invited users, add them to participants array
-            console.log('🎯 Adding invited user to call participants:', dto.myUser._id);
-            await this.callHistory.findByIdAndUpdate(call._id, {
-                $addToSet: { participants: dto.myUser._id }
-            });
+            throw new BadRequestException('Call not found with ID: ' + dto.callId);
         }
 
+        // Only allow invited join for GROUP calls
         // The call must be ringing or already in progress to accept.
         if (call.callStatus !== CallStatus.Ring && call.callStatus !== CallStatus.InCall) {
             throw new BadRequestException('Call status not ring or in-call! Current status: ' + call.callStatus);
@@ -428,16 +551,11 @@ export class CallService {
         // Confirm the user is not banned or removed from the room.
         let rM = await this.isThereRoomMemberAndNotBanedOrThrow(call.roomId, dto.myUser._id);
         let isGroup = rM.rT == RoomType.GroupChat
+        try {
+            console.log(`[CallService.acceptCall] roomId=${call.roomId} callId=${dto.callId} isGroup=${isGroup}`);
+        } catch (_) {}
 
-        // Add this user as a call member and update the meet status to 'InCall'.
-        const callMemberCreation = this.callMemberService.create({
-            callId: call._id,
-            userId: dto.myUser._id,
-            roomId: call.roomId,
-            userDeviceId: dto.myUser.currentDevice._id,
-        });
-
-        // Ensure call status is set to InCall when someone accepts
+        // Ensure call status is set to InCall before adding members
         if (call.callStatus === CallStatus.Ring) {
             await this.callHistory.findByIdAndUpdate(call._id, {
                 callStatus: CallStatus.InCall,
@@ -447,10 +565,38 @@ export class CallService {
             callStatus: CallStatus.InCall,
         });
 
+        // Fetch current participants BEFORE creating a new callMember
+        const callMembers = await this.callMemberService.findAll({callId: call._id}, 'userId');
+        const participantIds = callMembers.map(member => member.userId.toString());
+        try {
+            console.log(`[CallService.acceptCall] Current participants before join: ${participantIds.join(',')}`);
+        } catch (_) {}
+
+        // Safeguard: prevent more than 2 participants on single calls
+        if (!isGroup && !participantIds.includes(dto.myUser._id.toString()) && participantIds.length >= 2) {
+            try {
+                console.warn(`[CallService.acceptCall] Preventing extra participant ${dto.myUser._id} from joining single call ${dto.callId}. Participants=${participantIds.join(',')}`);
+            } catch (_) {}
+            throw new BadRequestException('Cannot join: single call already has two participants');
+        }
+
+        // Add this user as a call member now that checks passed
+        const callMemberCreation = this.callMemberService.create({
+            callId: call._id,
+            userId: dto.myUser._id,
+            roomId: call.roomId,
+            userDeviceId: dto.myUser.currentDevice._id,
+        });
+
         await Promise.all([callMemberCreation, callUpdated]);
         if (isGroup) {
             return {callId: dto.callId};
         }
+
+        const callMembersAfter = await this.callMemberService.findAll({callId: call._id}, 'userId');
+        const participantIdsAfter = Array.from(
+            new Set(callMembersAfter.map(member => member.userId.toString())),
+        );
         // Retrieve the caller's callMember entry to get their device ID.
         const peerUserCallMember = await this.callMemberService.findOne({
             callId: dto.callId,
@@ -470,24 +616,15 @@ export class CallService {
             throw new BadRequestException(i18nApi.peerUserDeviceOfflineString);
         }
 
-        // Notify all participants that someone joined the call
-        const callMembers = await this.callMemberService.findAll({callId: call._id}, 'userId');
-        const participantIds = callMembers.map(member => member.userId.toString());
-
-        // Add the new participant to the list if not already there
-        if (!participantIds.includes(dto.myUser._id.toString())) {
-            participantIds.push(dto.myUser._id.toString());
-        }
-
         // Get user details for all participants
         const participants = await this.userService.findAll({
-            _id: { $in: participantIds }
+            _id: { $in: participantIdsAfter }
         }, 'fullName _id');
 
         // Notify all call participants individually (not just room members)
         const callAcceptedData = {
             meetId: dto.callId, // Use meetId to match Flutter model
-            roomId: call.roomId,
+            roomId: call.roomId.toString(),
             peerAnswer: dto.payload,
             participants: participants.map(p => ({
                 userId: p._id.toString(),
@@ -501,7 +638,7 @@ export class CallService {
 
         const participantJoinedData = {
             callId: dto.callId, // Keep callId for participant joined event
-            roomId: call.roomId,
+            roomId: call.roomId.toString(),
             participant: {
                 userId: dto.myUser._id.toString(),
                 name: dto.myUser.fullName
@@ -513,7 +650,7 @@ export class CallService {
         };
 
         // Notify each participant individually to ensure they all receive the event
-        for (const participantId of participantIds) {
+        for (const participantId of participantIdsAfter) {
             this.socket.io.to(participantId).emit(
                 SocketEventsType.v1OnCallAccepted,
                 JSON.stringify(callAcceptedData),
@@ -532,22 +669,27 @@ export class CallService {
      * Rejects a ringing call. Only the callee can reject.
      */
     async rejectCallForSingle(dto: MongoCallIdDto, call: ICallHistory) {
-        // Update call status to 'Rejected'.
-        await this.callHistory.findByIdAndUpdate(call._id, {
-            callStatus: CallStatus.Rejected,
-        });
+        // Idempotent: only the first transition Ring -> Rejected wins.
+        const updated = await this.callHistory.findOneAndUpdate(
+            { _id: call._id, callStatus: CallStatus.Ring } as any,
+            { callStatus: CallStatus.Rejected } as any,
+        );
+        if (!updated) {
+            return 'Call rejected';
+        }
 
         // Notify the caller that the call is rejected.
         this.socket.io.to(call.caller.toString()).emit(
             SocketEventsType.v1OnCallRejected,
             JSON.stringify({
                 callId: dto.callId,
-                roomId: call.roomId,
+                roomId: call.roomId.toString(),
             }),
         );
 
         // Create and broadcast a "rejected" message.
         const rejectMsgDto = getMsgDtoObj({
+            localId: this._callMsgLocalId(call.roomId, call._id, CallStatus.Rejected),
             rId: call.roomId,
             mT: MessageType.Call,
             att: {
@@ -557,7 +699,7 @@ export class CallService {
             content: `📞`,
             user: dto.myUser,
         });
-        const newMessage = await this.messageService.create(rejectMsgDto);
+        const newMessage = await this._createMessageIdempotent(rejectMsgDto);
         this.socket.io
             .to(call.roomId.toString())
             .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(newMessage));
@@ -571,13 +713,13 @@ export class CallService {
      */
     private async _timeoutRing(peerId: string, callId: string, missedDto: SendMessageDto) {
         const call = await this.callHistory.findByIdOrThrow(callId);
-        // Only handle if the call is still 'Ring'.
-        if (call.callStatus == CallStatus.Ring) {
-            await this.callHistory.findOneAndUpdate({_id: callId}, {
-                callStatus: CallStatus.Timeout,
-            });
-
-            const newMessage = await this.messageService.create(missedDto);
+        // Idempotent: only the first transition Ring -> Timeout wins.
+        const updated = await this.callHistory.findOneAndUpdate(
+            { _id: callId, callStatus: CallStatus.Ring } as any,
+            { callStatus: CallStatus.Timeout } as any,
+        );
+        if (updated) {
+            const newMessage = await this._createMessageIdempotent(missedDto);
             await this.updateCallStatusForUser(peerId, UserGlobalCallStatus.createEmpty());
             await this.updateCallStatusForUser(missedDto.myUser._id, UserGlobalCallStatus.createEmpty());
             // Notify everyone in the room that the call timed out.
@@ -589,7 +731,7 @@ export class CallService {
                 .to(missedDto._roomId.toString())
                 .emit(SocketEventsType.v1OnCallTimeout, JSON.stringify({
                     callId: callId,
-                    roomId: missedDto._roomId,
+                    roomId: missedDto._roomId.toString(),
                 }));
             // // Optional push notification for the peer about the missed call.
             await this.notificationService.singleChatNotification(peerId, newMessage);
@@ -603,7 +745,7 @@ export class CallService {
      */
     async getAgoraAccess(dto: MongoRoomIdDto) {
         await this.isThereRoomMemberAndNotBanedOrThrow(dto.roomId, dto.myUser._id);
-        return this.agoraService.getAgoraAccessNew(dto.roomId, true);
+        return this.agoraService.getAgoraAccess(dto.roomId, dto.myUser._id.toString(), true);
     }
 
     /**
@@ -622,7 +764,7 @@ export class CallService {
         }
 
         // Use the callId as the channel name to ensure all participants join the same channel
-        return this.agoraService.getAgoraAccessNew(dto.callId, true);
+        return this.agoraService.getAgoraAccess(dto.callId, dto.myUser._id.toString(), true);
     }
 
     /**
@@ -803,6 +945,12 @@ export class CallService {
             roomType: RoomType.GroupChat,
 
         });
+        try {
+            const participantIds = users.map((value: { [x: string]: any; }) => value['uId']);
+            console.log(
+                `[CallService.createGroupCallNotify] Created group call=${call._id} roomId=${dto.roomId} withVideo=${dto.withVideo} participantsCount=${participantIds.length} participants=${participantIds.join(',')}`,
+            );
+        } catch (_) {}
         await this.callMemberService.create({
             callId: call._id,
             userId: dto.myUser._id,
@@ -826,6 +974,7 @@ export class CallService {
 
         // Build a message about the group call.
         const ringMsgDto = getMsgDtoObj({
+            localId: this._callMsgLocalId(dto.roomId, call._id, CallStatus.Ring),
             rId: dto.roomId,
             mT: MessageType.Call,
             att: {
@@ -841,7 +990,7 @@ export class CallService {
         });
 
         // Save the message and broadcast to the group room.
-        const newMessage = await this.messageService.create(ringMsgDto);
+        const newMessage = await this._createMessageIdempotent(ringMsgDto);
         this.socket.io
             .to(newMessage.rId.toString())
             .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(newMessage));
@@ -939,6 +1088,7 @@ export class CallService {
     private async sendCallInvitation(call: any, invitedUser: any, inviter: any, roomId: string) {
         // Create a call invitation message
         const invitationMsgDto = getMsgDtoObj({
+            localId: this._callMsgLocalId(roomId, call._id, CallStatus.Ring),
             rId: roomId,
             mT: MessageType.Call,
             att: {
@@ -954,7 +1104,7 @@ export class CallService {
         });
 
         // Save the invitation message
-        const newMessage = await this.messageService.create(invitationMsgDto);
+        const newMessage = await this._createMessageIdempotent(invitationMsgDto);
 
         // Send socket notification to the invited user
         this.socket.io

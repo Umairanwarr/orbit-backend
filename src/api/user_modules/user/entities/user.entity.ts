@@ -20,6 +20,7 @@ export interface IUser {
   password: string;
   uniqueCode: number;
   bio?: string;
+  profession?: string;
   phoneNumber?: string;
   // Gender enum male female
   gender?: string;
@@ -36,7 +37,11 @@ export interface IUser {
   banTo?: Date;
   banMessageTo: Date;
   banLiveTo: Date;
+  rideBannedAt?: Date | null;
+  rideBanReason?: string | null;
+  rideUnbannedAt?: Date | null;
   verifiedAt?: Date;
+  verifiedUntil?: Date | null;
   registerStatus: RegisterStatus;
   registerMethod: RegisterMethod;
   userImage: string;
@@ -57,6 +62,14 @@ export interface IUser {
   userGlobalCallStatus?: UserGlobalCallStatus;
   socialId?: string;
   provider?: string;
+  // Two-Factor Authentication fields
+  twoFactorSecret?: string | null;
+  twoFactorEnabled?: boolean;
+  twoFactorOTP?: string | null;
+  twoFactorOTPExpiry?: Date | null;
+  twoFactorDeviceId?: string | null;
+  twoFactorTicket?: string | null;
+  trustedDeviceIds?: string[];
 }
 
 export interface UserPrivacy {
@@ -64,6 +77,14 @@ export interface UserPrivacy {
   publicSearch: boolean;
   showStory: UserPrivacyTypes;
   lastSeen: boolean;
+  readReceipts: boolean;
+  hideFollowing?: boolean;
+  profilePicAllowedUsers: string[];
+  profilePicBlockedUsers: string[];
+  groupAddPermission: UserPrivacyTypes;
+  callPermission: UserPrivacyTypes;
+  callAllowedUsers: string[];
+  callBlockedUsers: string[];
 }
 
 export const UserSchema = new mongoose.Schema(
@@ -72,6 +93,7 @@ export const UserSchema = new mongoose.Schema(
     fullName: { type: String, required: true },
     fullNameEn: { type: String, required: true },
     bio: { type: String, default: null },
+    profession: { type: String, default: null },
     phoneNumber: { type: String, default: null },
     userGlobalCallStatus: {
       type: Object,
@@ -85,7 +107,8 @@ export const UserSchema = new mongoose.Schema(
     password: { type: String, required: true, select: false },
     lastMail: { type: Object, default: {} },
     verifiedAt: { type: Date, default: null },
-    userImage: { type: String, default: "default_user_image.png" },
+    verifiedUntil: { type: Date, default: null },
+    userImage: { type: String, default: "/v-public/default_user_image.png" },
     registerStatus: {
       type: String,
       enum: Object.values(RegisterStatus),
@@ -104,6 +127,9 @@ export const UserSchema = new mongoose.Schema(
     banTo: { type: Date, default: null },
     banMessageTo: { type: Date, default: null },
     banLiveTo: { type: Date, default: null },
+    rideBannedAt: { type: Date, default: null },
+    rideBanReason: { type: String, default: null },
+    rideUnbannedAt: { type: Date, default: null },
     countryId: { type: Schema.Types.ObjectId, default: null, ref: "countries" },
     createdAt: { type: Date },
     deletedAt: { type: Date, default: null },
@@ -115,6 +141,14 @@ export const UserSchema = new mongoose.Schema(
         publicSearch: true,
         showStory: UserPrivacyTypes.ForReq,
         lastSeen: true,
+        readReceipts: true,
+        hideFollowing: false,
+        profilePicAllowedUsers: [],
+        profilePicBlockedUsers: [],
+        groupAddPermission: UserPrivacyTypes.Public,
+        callPermission: UserPrivacyTypes.Public,
+        callAllowedUsers: [],
+        callBlockedUsers: [],
       },
     },
     lastSeenAt: { type: Date, default: Date.now },
@@ -126,6 +160,14 @@ export const UserSchema = new mongoose.Schema(
     resetPasswordOTPExpiry: { type: Date, default: null },
     socialId: { type: String, default: null },
     provider: { type: String, default: null },
+    // 2FA fields
+    twoFactorSecret: { type: String, default: null, select: false },
+    twoFactorEnabled: { type: Boolean, default: false },
+    twoFactorOTP: { type: String, default: null },
+    twoFactorOTPExpiry: { type: Date, default: null },
+    twoFactorDeviceId: { type: String, default: null },
+    twoFactorTicket: { type: String, default: null },
+    trustedDeviceIds: { type: [String], default: [] },
   },
   {
     timestamps: true,
@@ -156,6 +198,45 @@ UserSchema.pre("findOneAndUpdate", async function (next) {
   }
 
   next();
+});
+
+// Transform to ensure userImage URLs are always relative paths
+UserSchema.set('toJSON', {
+    transform: function(doc, ret) {
+        if (ret.userImage && ret.userImage.startsWith('http')) {
+            // Extract the path part from full URL
+            const url = new URL(ret.userImage);
+            // Preserve Cloudinary (and other external CDN) URLs.
+            // Only convert to relative path when it's our own domain.
+            const host = (url.hostname || '').toLowerCase();
+            const isCloudinary = host.includes('res.cloudinary.com');
+            const isOurDomain = host.endsWith('orbit.ke') || host.endsWith('superupdev.online');
+            if (!isCloudinary && isOurDomain) {
+                ret.userImage = url.pathname;
+                console.log(`User toJSON transform - Converted userImage to: ${ret.userImage}`);
+            }
+        }
+        return ret;
+    }
+});
+
+UserSchema.set('toObject', {
+    transform: function(doc, ret) {
+        if (ret.userImage && ret.userImage.startsWith('http')) {
+            // Extract the path part from full URL
+            const url = new URL(ret.userImage);
+            // Preserve Cloudinary (and other external CDN) URLs.
+            // Only convert to relative path when it's our own domain.
+            const host = (url.hostname || '').toLowerCase();
+            const isCloudinary = host.includes('res.cloudinary.com');
+            const isOurDomain = host.endsWith('orbit.ke') || host.endsWith('superupdev.online');
+            if (!isCloudinary && isOurDomain) {
+                ret.userImage = url.pathname;
+                console.log(`User toObject transform - Converted userImage to: ${ret.userImage}`);
+            }
+        }
+        return ret;
+    }
 });
 
 UserSchema.plugin(pM);

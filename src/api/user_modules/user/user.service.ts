@@ -59,6 +59,11 @@ export class UserService extends BaseService<IUser> {
       query.gender = filters.gender;
     }
 
+    // 4.1 PROFESSION FILTER
+    if (filters.profession) {
+      query.profession = filters.profession;
+    }
+
     // 5. COUNTRY FILTER
     if (filters.country) {
       query.countryId = new Types.ObjectId(filters.country);
@@ -207,6 +212,7 @@ export class UserService extends BaseService<IUser> {
       },
       appliedFilters: {
         gender: filters.gender || "any",
+        profession: filters.profession || "any",
         country: filters.country || "any",
         verifiedOnly: filters.verifiedOnly || false,
         searchTerm: filters.search || null,
@@ -275,12 +281,6 @@ export class UserService extends BaseService<IUser> {
 
   // Special method for authentication that bypasses validation
   findByIdForAuth(id: string, select?: string): Promise<IUser | null> {
-    console.log(
-      "UserService: findByIdForAuth called with id:",
-      id,
-      "type:",
-      typeof id
-    );
     try {
       // Convert string to ObjectId for MongoDB query
       const objectId = new mongoose.Types.ObjectId(id);
@@ -469,6 +469,26 @@ export class UserService extends BaseService<IUser> {
         { new: true }
       )
       .lean();
+  }
+
+  async subtractFromBalanceAtomic(
+    userId: string,
+    amount: number
+  ): Promise<IUser> {
+    const objectId = new mongoose.Types.ObjectId(userId);
+    const updated = await this.model
+      .findOneAndUpdate(
+        { _id: objectId, balance: { $gte: amount } },
+        { $inc: { balance: -amount } },
+        { new: true }
+      )
+      .lean();
+
+    if (!updated) {
+      throw new BadRequestException("Insufficient balance");
+    }
+
+    return updated as any;
   }
 
   async setBalance(userId: string, amount: number): Promise<IUser | null> {

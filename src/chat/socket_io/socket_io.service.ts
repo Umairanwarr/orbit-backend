@@ -5,8 +5,10 @@
  */
 
 import {Injectable} from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
 import {Server, Socket} from "socket.io";
 import {RemoteSocket} from "socket.io/dist/broadcast-operator";
+import { Model } from 'mongoose';
 import {CallMemberService} from "../call_modules/call_member/call_member.service";
 import {RoomMemberService} from "../room_member/room_member.service";
 import {MessageService} from "../message/message.service";
@@ -18,6 +20,7 @@ import {IRoomMember} from "../room_member/entities/room_member.entity";
 import {newMongoObjId} from "../../core/utils/utils";
 import {UserDeviceService} from "../../api/user_modules/user_device/user_device.service";
 import {UserGlobalCallStatus} from "../call_modules/utils/user-global-call-status.model";
+import { ILiveStream, ILiveStreamParticipant, LiveStreamStatus } from "../../api/live_stream/interfaces/live_stream.interface";
 
 @Injectable()
 export class SocketIoService {
@@ -31,6 +34,8 @@ export class SocketIoService {
         private readonly callMemberService: CallMemberService,
         private readonly middlewareService: RoomMiddlewareService,
         private readonly userDeviceService: UserDeviceService,
+        @InjectModel('LiveStream') private readonly liveStreamModel: Model<ILiveStream>,
+        @InjectModel('LiveStreamParticipant') private readonly liveStreamParticipantModel: Model<ILiveStreamParticipant>,
     ) {
     }
 
@@ -183,6 +188,32 @@ export class SocketIoService {
                 myUser._id,
                 roomId,
             );
+            // Emit real-time event to group members about delivered status
+            this.io.to(roomId.toString()).emit(
+                SocketEventsType.v1OnGroupMessageStatus,
+                JSON.stringify({
+                    roomId: roomId.toString(),
+                    userId: myUser._id.toString(),
+                    userName: myUser.fullName,
+                    userImage: myUser.userImage,
+                    status: 'delivered',
+                    deliveredAt: new Date(),
+                }),
+            );
+        }
+        if (rMember.rT == RoomType.Broadcast) {
+            // Emit real-time event to broadcast members about delivered status
+            this.io.to(roomId.toString()).emit(
+                SocketEventsType.v1OnBroadcastMessageStatus,
+                JSON.stringify({
+                    roomId: roomId.toString(),
+                    userId: myUser._id.toString(),
+                    userName: myUser.fullName,
+                    userImage: myUser.userImage,
+                    status: 'delivered',
+                    deliveredAt: new Date(),
+                }),
+            );
         }
         return {isUpdated: false, pId: null}
     }
@@ -197,6 +228,11 @@ export class SocketIoService {
             uId: myUser._id,
             rId: roomId.toString(),
         }, {lSMId: newMongoObjId().toString()});
+
+        const allowReadReceipts = myUser?.userPrivacy?.readReceipts !== false;
+        if (!allowReadReceipts) {
+            return {isUpdated: false, pId: null};
+        }
         if (rMember.rT == RoomType.Single || rMember.rT == RoomType.Order) {
             let res = await this.messageService.setMessageSeenForSingleChat(
                 myUser._id,
@@ -205,10 +241,37 @@ export class SocketIoService {
             let isUpdated = res['modifiedCount'] != 0;
             return {isUpdated: isUpdated, pId: rMember.pId.toString()}
         } else if (rMember.rT == RoomType.GroupChat) {
-            await this.messageService.setMessageSeenForGroupChat(
+            const result = await this.messageService.setMessageSeenForGroupChat(
                 myUser._id,
                 roomId,
             );
+            // Emit real-time event to group members about seen status
+            this.io.to(roomId.toString()).emit(
+                SocketEventsType.v1OnGroupMessageStatus,
+                JSON.stringify({
+                    roomId: roomId.toString(),
+                    userId: myUser._id.toString(),
+                    userName: myUser.fullName,
+                    userImage: myUser.userImage,
+                    status: 'seen',
+                    seenAt: new Date(),
+                }),
+            );
+            return {isUpdated: true, pId: null}
+        } else if (rMember.rT == RoomType.Broadcast) {
+            // For broadcast, emit seen status to broadcast members
+            this.io.to(roomId.toString()).emit(
+                SocketEventsType.v1OnBroadcastMessageStatus,
+                JSON.stringify({
+                    roomId: roomId.toString(),
+                    userId: myUser._id.toString(),
+                    userName: myUser.fullName,
+                    userImage: myUser.userImage,
+                    status: 'seen',
+                    seenAt: new Date(),
+                }),
+            );
+            return {isUpdated: true, pId: null}
         }
         return {isUpdated: false, pId: null}
     }
@@ -230,6 +293,19 @@ export class SocketIoService {
                 );
         }
         await this._checkIfThisDeviceInCall(client.user._id, client.user.currentDevice._id);
+
+        // After a short grace period, auto-end any live streams hosted by this user
+        // when no host socket remains joined to the stream room. This ensures that
+        // if the app is killed or crashes while live, the stream is properly ended
+        // on the backend and disappears from the live list.
+        const userId = client.user._id.toString();
+        setTimeout(async () => {
+            try {
+                await this._autoEndLiveStreamsForUser(userId);
+            } catch (error) {
+                console.error('Error auto-ending live streams on disconnect:', error);
+            }
+        }, 30000); // 30s grace period to allow quick reconnection
     }
 
     async kickGroupMember(gId: string, peerId: string) {
@@ -256,6 +332,63 @@ export class SocketIoService {
             }
         }
 
+    }
+
+    private async _autoEndLiveStreamsForUser(userId: string) {
+        // Find all streams that are currently live for this host
+        const liveStreams = await this.liveStreamModel.find({
+            streamerId: userId,
+            status: LiveStreamStatus.LIVE,
+        }).exec();
+
+        if (!liveStreams.length) {
+            return;
+        }
+
+        for (const stream of liveStreams) {
+            try {
+                const streamId = stream._id.toString();
+
+                // Check if any socket belonging to the host is still joined to this stream room
+                const socketsInRoom = await this.io.in(streamId).fetchSockets();
+                const hasHostSocketInRoom = socketsInRoom.some((s) => {
+                    try {
+                        // Use bracket notation to match existing patterns and avoid TS type issues
+                        const socketUser: any = (s as any)["user"];
+                        return socketUser && socketUser._id && socketUser._id.toString() === userId.toString();
+                    } catch {
+                        return false;
+                    }
+                });
+
+                // If the host is still connected to this live, do not end it
+                if (hasHostSocketInRoom) {
+                    continue;
+                }
+
+                const startedAt = stream.startedAt ? stream.startedAt.getTime() : null;
+                const duration = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+
+                stream.status = LiveStreamStatus.ENDED;
+                stream.endedAt = new Date();
+                stream.duration = duration;
+                await stream.save();
+
+                // Mark all active participants as inactive
+                await this.liveStreamParticipantModel.updateMany(
+                    { streamId: streamId, isActive: true },
+                    { isActive: false, leftAt: new Date() },
+                );
+
+                // Notify all sockets in this stream room that the live has ended
+                this.io.to(streamId).emit('live_stream_ended', {
+                    streamId,
+                    duration,
+                });
+            } catch (error) {
+                console.error('Error auto-ending live stream for user', userId, error);
+            }
+        }
     }
 
 

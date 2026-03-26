@@ -20,6 +20,8 @@ export interface IGroupSettings extends Document {
     gName: string;
     //group image
     gImg: string;
+    // optional community reference
+    communityId?: string;
 }
 
 export const GroupSettingSchema: Schema = new Schema(
@@ -31,6 +33,7 @@ export const GroupSettingSchema: Schema = new Schema(
         pinMsg: {type: Object, default: null},
         extraData: {type: Object, default: null},
         desc: {type: String, default: null},
+        communityId: {type: Schema.Types.ObjectId, default: null, ref: 'community'},
         createdAt: {type: Date, select: true},
         updatedAt: {type: Date, select: false}
     },

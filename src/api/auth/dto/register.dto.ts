@@ -33,6 +33,10 @@ export default class RegisterDto {
     @MaxLength(usersMaxNameSize)
     fullName: string;
 
+    @Allow()
+    @Trim()
+    profession?: string;
+
 
     @IsNotEmpty()
     @Trim()

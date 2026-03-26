@@ -260,4 +260,124 @@ export class SocketIoGateway implements OnGatewayInit, OnGatewayConnection, OnGa
         }
     }
 
+    // Live Location Sharing Handlers
+    @SubscribeMessage(SocketEventsType.v1LiveLocationStart)
+    async liveLocationStart(
+        @MessageBody() data: any,
+        @ConnectedSocket() client: Socket,
+    ) {
+        try {
+            let payload: any = data;
+            try {
+                payload = jsonDecoder(data);
+            } catch (_) {
+                payload = data;
+            }
+            const roomId = payload?.roomId || data['roomId'];
+            const messageId = payload?.messageId || data['messageId'];
+            const duration = payload?.duration || data['duration'];
+            const lat = payload?.lat || data['lat'];
+            const long = payload?.long || data['long'];
+            
+            if (!roomId || !messageId) {
+                throw new BadRequestException('liveLocationStart: roomId and messageId are required');
+            }
+
+            const res = {
+                roomId: roomId.toString(),
+                messageId: messageId.toString(),
+                senderId: client.user._id.toString(),
+                senderName: client.user.fullName,
+                duration: duration || 15, // default 15 minutes
+                lat: lat,
+                long: long,
+                startedAt: new Date(),
+            };
+
+            // Notify all room members that live location started
+            this.io.to(roomId.toString()).emit(
+                SocketEventsType.v1OnLiveLocationStarted,
+                JSON.stringify(res)
+            );
+        } catch (error) {
+            console.error('liveLocationStart handler error:', error);
+        }
+    }
+
+    @SubscribeMessage(SocketEventsType.v1LiveLocationUpdate)
+    async liveLocationUpdate(
+        @MessageBody() data: any,
+        @ConnectedSocket() client: Socket,
+    ) {
+        try {
+            let payload: any = data;
+            try {
+                payload = jsonDecoder(data);
+            } catch (_) {
+                payload = data;
+            }
+            const roomId = payload?.roomId || data['roomId'];
+            const messageId = payload?.messageId || data['messageId'];
+            const lat = payload?.lat || data['lat'];
+            const long = payload?.long || data['long'];
+            
+            if (!roomId || !messageId || lat == null || long == null) {
+                throw new BadRequestException('liveLocationUpdate: roomId, messageId, lat, and long are required');
+            }
+
+            const res = {
+                roomId: roomId.toString(),
+                messageId: messageId.toString(),
+                senderId: client.user._id.toString(),
+                lat: lat,
+                long: long,
+                updatedAt: new Date(),
+            };
+
+            // Broadcast location update to all room members except sender
+            client.to(roomId.toString()).emit(
+                SocketEventsType.v1OnLiveLocationUpdate,
+                JSON.stringify(res)
+            );
+        } catch (error) {
+            console.error('liveLocationUpdate handler error:', error);
+        }
+    }
+
+    @SubscribeMessage(SocketEventsType.v1LiveLocationStop)
+    async liveLocationStop(
+        @MessageBody() data: any,
+        @ConnectedSocket() client: Socket,
+    ) {
+        try {
+            let payload: any = data;
+            try {
+                payload = jsonDecoder(data);
+            } catch (_) {
+                payload = data;
+            }
+            const roomId = payload?.roomId || data['roomId'];
+            const messageId = payload?.messageId || data['messageId'];
+            
+            if (!roomId || !messageId) {
+                throw new BadRequestException('liveLocationStop: roomId and messageId are required');
+            }
+
+            const res = {
+                roomId: roomId.toString(),
+                messageId: messageId.toString(),
+                senderId: client.user._id.toString(),
+                stoppedAt: new Date(),
+            };
+
+            // Notify all room members that live location stopped
+            this.io.to(roomId.toString()).emit(
+                SocketEventsType.v1OnLiveLocationStopped,
+                JSON.stringify(res)
+            );
+        } catch (error) {
+            console.error('liveLocationStop handler error:', error);
+        }
+    }
+
 }

@@ -11,7 +11,11 @@ export interface IGift extends Document {
     name: string;
     description?: string;
     imageUrl: string;
+    // Backward compatibility: existing records use 'price' (USD). New fields below.
     price: number;
+    currency?: 'USD' | 'KES';
+    priceUsd?: number;
+    priceKes?: number;
     isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -36,6 +40,21 @@ export const GiftSchema: Schema = new Schema(
             type: Number,
             required: true,
             min: 0,
+        },
+        currency: {
+            type: String,
+            enum: ['USD', 'KES'],
+            default: 'USD',
+        },
+        priceUsd: {
+            type: Number,
+            min: 0,
+            default: null,
+        },
+        priceKes: {
+            type: Number,
+            min: 0,
+            default: null,
         },
         isActive: {
             type: Boolean,

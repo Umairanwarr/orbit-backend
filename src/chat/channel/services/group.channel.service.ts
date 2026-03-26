@@ -36,7 +36,8 @@ import {
     MessageType,
     RoomType,
     S3UploaderTypes,
-    SocketEventsType
+    SocketEventsType,
+    UserPrivacyTypes,
 } from "../../../core/utils/enums";
 import {MongoRoomIdDto} from "../../../core/common/dto/mongo.room.id.dto";
 import {IRoomMember} from "../../room_member/entities/room_member.entity";
@@ -52,6 +53,7 @@ import {DefaultPaginateParams} from "../../../core/common/dto/paginateDto";
 import {IGroupSettings} from "../../group_settings/entities/group_setting.entity";
 import {NotificationEmitterChannelService} from "./notification_emitter_channel.service";
 import {LoyaltyPointsService, LoyaltyPointsAction} from "../../../api/user_modules/loyalty_points/loyalty_points.service";
+import * as crypto from 'crypto';
 
 @Injectable()
 export class GroupChannelService {
@@ -75,6 +77,41 @@ export class GroupChannelService {
     ) {
     }
 
+    // ============== Helpers for Invite Codes ==============
+    private _generateInviteCode(): string {
+        // 16 random bytes -> 32 hex chars
+        return crypto.randomBytes(16).toString('hex');
+    }
+
+    private async _getOrCreateInviteCode(roomId: string): Promise<string> {
+        const settings = await this.groupSetting.findByIdOrThrow(roomId);
+        const extra = (settings as any).extraData || {};
+        if (extra.inviteCode && typeof extra.inviteCode === 'string') {
+            return extra.inviteCode as string;
+        }
+        const code = this._generateInviteCode();
+        await this.groupSetting.findByIdAndUpdate(roomId, {
+            extraData: {
+                ...extra,
+                inviteCode: code,
+            },
+        });
+        return code;
+    }
+
+    private _buildInviteLink(code: string): string {
+        // Prefer FRONTEND_URL if provided (e.g., http://localhost:3000/ for local dev)
+        let base = this.config.get<string>('FRONTEND_URL') || '';
+        if (!base || base.trim().length === 0) {
+            base = 'https://orbit.ke/';
+        }
+        // Ensure trailing slash once for clean concatenation
+        if (!base.endsWith('/')) base = base + '/';
+        // Use unified path landing that exists in backend AppController: /g/:code
+        // Works for localhost and production equally and shows an "Open in App" button.
+        return `${base}g/${code}`;
+    }
+
     async createGroupChat(dto: CreateGroupRoomDto, session?: mongoose.ClientSession) {
         let config: IAppConfig = await this.appConfig.getConfig();
         let maxGroupCount = config.maxGroupMembers;
@@ -91,11 +128,24 @@ export class GroupChannelService {
         ///add me to this group !
         dto.peerIds.push(dto.myUser._id);
         let groupId = newMongoObjId().toString();
-        let users = await this.userService.findByIds(dto.peerIds, "fullName fullNameEn userImage")
+        let users = await this.userService.findByIds(dto.peerIds, "fullName fullNameEn userImage userPrivacy")
         let roomMembers: Partial<IRoomMember>[] = [];
         let groupMembers: Partial<IGroupMember>[] = [];
         let messages: SendMessageDto[] = []
         const isChannel = dto.extraData && (dto.extraData as any)['isChannel'] === true;
+        // Enforce unique channel names (case-insensitive)
+        if (isChannel) {
+            const name = dto.groupName?.trim();
+            if (!name) throw new BadRequestException("title is required");
+            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const existing = await this.groupSetting.findOne(
+                { gName: { $regex: `^${escaped}$`, $options: 'i' }, 'extraData.isChannel': true },
+                '_id'
+            );
+            if (existing) {
+                throw new BadRequestException('Channel name already exists. Please choose another name.');
+            }
+        }
         let createGroupMsgDto = getMsgDtoObj({
             mT: MessageType.Info,
             _id: newMongoObjId().toString(),
@@ -115,6 +165,12 @@ export class GroupChannelService {
             //exclude if their ban !
             let ban = await this.userBan.getBan(dto.myUser._id, user._id)
             if (ban) continue;
+            // respect user privacy: who can add me to the group
+            const perm = (user as any)?.userPrivacy?.groupAddPermission as string | undefined;
+            if (perm && perm !== UserPrivacyTypes.Public) {
+                // skip users who do not allow being added to groups
+                continue;
+            }
             let sendMsgDto = getMsgDtoObj({
                 mT: MessageType.Info,
                 user: dto.myUser,
@@ -216,6 +272,136 @@ export class GroupChannelService {
         });
     }
 
+    // ============== Public Group Invite APIs ==============
+    async getInviteLink(dto: MongoRoomIdDto) {
+        // Any group member can fetch or create the invite link
+        const rM = await this.middlewareService.isThereRoomMemberOrThrow(dto.roomId, dto.myUser._id);
+        if (rM.rT != RoomType.GroupChat) throw new BadRequestException('you must perform this action on groups');
+        const code = await this._getOrCreateInviteCode(dto.roomId);
+        const settings = await this.groupSetting.findByIdOrThrow(dto.roomId);
+        return {
+            roomId: dto.roomId,
+            code,
+            link: this._buildInviteLink(code),
+            title: settings.gName,
+            image: settings.gImg,
+            isChannel: Boolean((settings as any)?.extraData?.isChannel === true),
+        };
+    }
+
+    async regenerateInviteLink(dto: MongoRoomIdDto) {
+        // Only group admins/super-admins can regenerate the invite link
+        await this.checkGroupAdminMember(dto.roomId, dto.myUser._id);
+        const settings = await this.groupSetting.findByIdOrThrow(dto.roomId);
+        const extra = (settings as any).extraData || {};
+        const code = this._generateInviteCode();
+        await this.groupSetting.findByIdAndUpdate(dto.roomId, {
+            extraData: {
+                ...extra,
+                inviteCode: code,
+            },
+        });
+        return {
+            roomId: dto.roomId,
+            code,
+            link: this._buildInviteLink(code),
+        };
+    }
+
+    async resolveInviteCode(code: string) {
+        const settings = await this.groupSetting.findOne({ 'extraData.inviteCode': code } as any, null);
+        if (!settings) throw new NotFoundException('Invalid invite');
+        return {
+            roomId: settings._id,
+            title: settings.gName,
+            image: settings.gImg,
+            isChannel: Boolean((settings as any)?.extraData?.isChannel === true),
+        };
+    }
+
+    async joinByInvite(code: string, myUser: IUser) {
+        const settings = await this.groupSetting.findOne({ 'extraData.inviteCode': code } as any, null);
+        if (!settings) throw new NotFoundException('Invalid invite');
+        const roomId = (settings as any)._id as string;
+
+        // Check if already a member
+        const existing = await this.groupMember.findOne({ rId: roomId, uId: myUser._id });
+        if (existing) {
+            return {
+                roomId,
+                alreadyMember: true,
+            };
+        }
+
+        const isChannel = Boolean((settings as any)?.extraData?.isChannel === true);
+        if (isChannel) {
+            // Delegate to existing joinChannel logic
+            const d = new MongoRoomIdDto();
+            d.roomId = roomId;
+            d.myUser = myUser;
+            await this.joinChannel(d);
+            return { roomId };
+        }
+
+        // Normal group: add current user as member without admin check
+        // Create group member
+        await this.groupMember.create({
+            uId: myUser._id,
+            rId: roomId,
+            userData: {
+                _id: myUser._id,
+                userImage: (myUser as any).userImage,
+                fullName: myUser.fullName,
+                fullNameEn: (myUser as any).fullNameEn,
+            },
+            gR: GroupRoleType.Member,
+        });
+
+        // Create room member
+        await this.roomMemberService.create({
+            uId: myUser._id,
+            rId: roomId,
+            lSMId: newMongoObjId().toString(),
+            rT: RoomType.GroupChat,
+            t: settings.gName,
+            tEn: remove(settings.gName),
+            isOneSeen: false,
+            img: settings.gImg,
+        });
+
+        // Join socket room
+        await this.socketIoService.joinRoom({ roomId: roomId, usersIds: [myUser._id] });
+
+        // Remove from outUsers if present
+        await this.groupSetting.findByIdAndUpdate(roomId, {
+            $pull: { outUsers: myUser._id },
+        } as any);
+
+        // Loyalty points
+        try {
+            await this.loyaltyPointsService.addPoints(myUser._id, LoyaltyPointsAction.JOIN_GROUP);
+        } catch (error) {
+            console.error('Failed to add group join loyalty points:', error);
+        }
+
+        // Emit join info message
+        const msgDto = getMsgDtoObj({
+            mT: MessageType.Info,
+            user: myUser as any,
+            rId: roomId,
+            att: {
+                adminName: myUser.fullName,
+                targetName: myUser.fullName,
+                targetId: myUser._id,
+                action: MessageInfoType.AddGroupMember,
+            },
+            content: `${myUser.fullName} joined via invite link`,
+        });
+        await this.messageChannelService.createMessage(msgDto, true);
+
+        return { roomId };
+    }
+
     async addMembersToGroup(gId: string, dto: MongoIdsDto) {
         let rM = await this.checkGroupAdminMember(gId, dto.myUser._id);
         if (rM.rT != RoomType.GroupChat) throw new BadRequestException("it must be GroupChat!")
@@ -232,9 +418,14 @@ export class GroupChannelService {
             //join this user to the room socket
             //notify this user by adding fcm
             //create join message and send it
-            let peerUser: IUser = await this.userService.findByIdOrThrow(id, "fullName fullNameEn userImage");
+            let peerUser: IUser = await this.userService.findByIdOrThrow(id, "fullName fullNameEn userImage userPrivacy");
             let ban = await this.userBan.getBan(dto.myUser._id, id)
             if (ban) continue;
+            // respect user privacy: who can add me to the group
+            const perm = (peerUser as any)?.userPrivacy?.groupAddPermission as string | undefined;
+            if (perm && perm !== UserPrivacyTypes.Public) {
+                continue;
+            }
 
             let iGroupMember = await this.groupMember.findOne({rId: gId, uId: id});
             if (iGroupMember)
@@ -533,10 +724,27 @@ export class GroupChannelService {
     async updateTitle(dto: MongoRoomIdDto, title: string) {
         let rM = await this.middlewareService.isThereRoomMemberOrThrow(dto.roomId, dto.myUser._id)
         if (rM.rT != RoomType.GroupChat) throw new BadRequestException("it must be group!")
+        const cleanTitle = title?.trim();
+        if (!cleanTitle) {
+            throw new BadRequestException("title is required");
+        }
+        // If this room is a channel, enforce unique channel name on rename
+        const currentSettings = await this.groupSetting.findByIdOrThrow(dto.roomId);
+        const isChannel = currentSettings && (currentSettings as any).extraData && (currentSettings as any).extraData['isChannel'] === true;
+        if (isChannel) {
+            const escaped = cleanTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const existing = await this.groupSetting.findOne(
+                { gName: { $regex: `^${escaped}$`, $options: 'i' }, 'extraData.isChannel': true, _id: { $ne: dto.roomId } },
+                '_id'
+            );
+            if (existing) {
+                throw new BadRequestException('Channel name already exists. Please choose another name.');
+            }
+        }
         await this.roomMemberService.findByRoomIdAndUpdate(
             dto.roomId, {
-                t: title,
-                tEn:remove(title)
+                t: cleanTitle,
+                tEn:remove(cleanTitle)
             }
         )
         let msgDto = getMsgDtoObj({
@@ -545,15 +753,15 @@ export class GroupChannelService {
             rId: dto.roomId,
             att: {
                 adminName: dto.myUser.fullName,
-                targetName: title,
+                targetName: cleanTitle,
                 targetId: dto.myUser._id,
                 action: MessageInfoType.UpdateTitle
             },
-            content: "Title updated to " + title + " BY " + dto.myUser.fullName
+            content: "Title updated to " + cleanTitle + " BY " + dto.myUser.fullName
         })
         this.messageChannelService.createMessage(msgDto, true).then()
         await this.groupSetting.findByIdAndUpdate(dto.roomId, {
-            gName: title
+            gName: cleanTitle
         })
         return "Room has been renamed successfully"
     }
@@ -634,11 +842,23 @@ export class GroupChannelService {
         // Read current settings to detect transition to channel
         const settings = await this.groupSetting.findByIdOrThrow(dto.roomId);
         const wasChannel = settings && (settings as any).extraData && (settings as any).extraData['isChannel'] === true;
+        const isChannel = (data as any)['isChannel'] === true;
+        // If converting a group to a channel, enforce unique channel name
+        if (!wasChannel && isChannel) {
+            const name = settings.gName?.trim();
+            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const existing = await this.groupSetting.findOne(
+                { gName: { $regex: `^${escaped}$`, $options: 'i' }, 'extraData.isChannel': true, _id: { $ne: dto.roomId } },
+                '_id'
+            );
+            if (existing) {
+                throw new BadRequestException('Channel name already exists. Please choose another name.');
+            }
+        }
         await this.groupSetting.findByIdAndUpdate(dto.roomId, {
             extraData: data
         })
 
-        const isChannel = (data as any)['isChannel'] === true;
         if (!wasChannel && isChannel) {
             // Emit a channel created info message so clients show correct banner
             const msgDto = getMsgDtoObj({

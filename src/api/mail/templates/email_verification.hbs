@@ -1,7 +1,17 @@
-<p>Welcome to Orbit Chat!</p>
-<p>Orbit Chat Email Verification</p>
-<p>
-    <span style="color: blue">{{code}}</span>
-</p>
+<h2 style="color:#111">Welcome to {{appName}}!</h2>
+<p>Hi {{name}},</p>
 
-<p>Do not share this code with anyone this code is only valid for 10 minutes.</p>
+{{#if link}}
+  <p>Please verify your email to create your account:</p>
+  <p style="margin:20px 0">
+    <a href="{{link}}" style="display:inline-block;padding:12px 24px;background-color:#16a34a;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;">Verify Email & Create Account</a>
+  </p>
+  <p style="color:#6b7280;font-size:14px">This link will expire in 15 minutes.</p>
+  <p style="color:#6b7280;font-size:14px">If the button doesn't work, copy and paste this link:</p>
+  <p style="word-break: break-all; color: #1a73e8;font-size:13px">{{link}}</p>
+{{else}}
+  <p>Use the verification code below:</p>
+  <p>
+      <span style="color: blue">{{code}}</span>
+  </p>
+{{/if}}

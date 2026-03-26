@@ -28,6 +28,7 @@ export interface ILiveStream extends Document {
     allowedViewers?: string[]; // User IDs who can view private streams
     bannedUsers?: string[]; // User IDs who are banned from the stream
     requiresApproval?: boolean; // Whether public streams require host approval to join
+    joinPrice?: number; // Price required to join when requiresApproval is true
     tags?: string[];
     thumbnailUrl?: string;
     startedAt?: Date;
@@ -85,7 +86,15 @@ export interface ILiveStreamJoinRequest extends Document {
         fullName: string;
         userImage: string;
     };
+    // requestType indicates whether the request is for normal view access or co-hosting
+    // default: 'viewer' to preserve existing behaviour
+    requestType?: 'viewer' | 'cohost';
+    // initiatedByHost marks whether the host initiated this invite (true) or it was requested by the user (false/undefined)
+    initiatedByHost?: boolean;
     status: 'pending' | 'approved' | 'denied';
+    age?: number; // viewer provided age
+    amountPaid?: number; // simulated paid amount
+    paid?: boolean; // whether payment was done (stub)
     requestedAt: Date;
     respondedAt?: Date;
     respondedBy?: string;
@@ -98,6 +107,39 @@ export enum LiveStreamStatus {
     LIVE = 'live',
     ENDED = 'ended',
     CANCELLED = 'cancelled'
+}
+
+export interface ILiveStreamRecording extends Document {
+    _id: string;
+    streamId: string;
+    streamerId: string;
+    streamerData: {
+        _id: string;
+        fullName: string;
+        userImage: string;
+    };
+    title: string;
+    description?: string;
+    recordingUrl: string;
+    thumbnailUrl?: string;
+    duration: number; // Duration in seconds
+    recordedAt: Date;
+    viewCount: number;
+    likesCount: number;
+    likedBy: string[];
+    tags: string[];
+    isPrivate: boolean;
+    allowedViewers: string[];
+    status: 'processing' | 'completed' | 'failed';
+    fileSize?: number;
+    quality?: string;
+    price?: number; // Optional price in primary currency; absent/0 => free
+    // Agora Cloud Recording fields
+    agoraResourceId?: string;
+    agoraSid?: string;
+    agoraFileList?: any[];
+    createdAt: Date;
+    updatedAt: Date;
 }
 
 export enum ParticipantRole {

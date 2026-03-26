@@ -4,7 +4,7 @@
  * MIT license that can be found in the LICENSE file.
  */
 
-import {IsBoolean, IsEnum, IsNotEmpty} from "class-validator";
+import {IsArray, IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString} from "class-validator";
 import CommonDto from "../../../core/common/dto/common.dto";
 import {ChatRequestStatus, UserPrivacyTypes} from "../../../core/utils/enums";
 
@@ -23,8 +23,34 @@ export class UpdateMyPrivacyDto extends CommonDto {
     @IsBoolean()
     lastSeen: boolean
 
+    @IsBoolean()
+    readReceipts: boolean
+
+    @IsEnum(UserPrivacyTypes)
+    groupAddPermission: UserPrivacyTypes
+
     @IsEnum(UserPrivacyTypes)
     showStory: UserPrivacyTypes
+
+    @IsEnum(UserPrivacyTypes)
+    callPermission: UserPrivacyTypes
+
+    @IsArray()
+    @IsString({ each: true })
+    callAllowedUsers: string[]
+    @IsArray()
+    @IsString({ each: true })
+    callBlockedUsers: string[]
+    @IsArray()
+    @IsString({ each: true })
+    profilePicAllowedUsers: string[]
+    @IsArray()
+    @IsString({ each: true })
+    profilePicBlockedUsers: string[]
+
+    @IsOptional()
+    @IsBoolean()
+    hideFollowing?: boolean
 }
 export class UpdateChatReqStatusDto extends CommonDto {
     @IsEnum(ChatRequestStatus)
@@ -34,6 +60,11 @@ export class UpdateChatReqStatusDto extends CommonDto {
 export class UpdateMyBioDto extends CommonDto {
     @IsNotEmpty()
     bio: string
+}
+
+export class UpdateMyProfessionDto extends CommonDto {
+    @IsNotEmpty()
+    profession: string
 }
 
 export class UpdateMyPhoneNumberDto extends CommonDto {

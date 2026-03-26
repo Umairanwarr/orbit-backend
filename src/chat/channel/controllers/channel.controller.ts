@@ -115,6 +115,12 @@ export class ChannelController {
     return resOK(await this.channelService.deliverRoomMessages(dto));
   }
 
+  @Patch("/:roomId/read")
+  async seenRoomMessages(@Req() req: any, @Param() dto: MongoRoomIdDto) {
+    dto.myUser = req.user;
+    return resOK(await this.channelService.seenRoomMessages(dto));
+  }
+
   @Patch("/:roomId/notification/mute")
   async muteRoomNotification(@Req() req: any, @Param() dto: MongoRoomIdDto) {
     dto.myUser = req.user;
@@ -131,6 +137,44 @@ export class ChannelController {
   async roomOneSeenOff(@Req() req: any, @Param() dto: MongoRoomIdDto) {
     dto.myUser = req.user;
     return resOK(await this.channelService.roomOneSeenOff(dto));
+  }
+
+  @Get("/:roomId/advanced-privacy")
+  async getAdvancedPrivacy(@Req() req: any, @Param() dto: MongoRoomIdDto) {
+    dto.myUser = req.user;
+    return resOK(await this.channelService.getAdvancedPrivacy(dto));
+  }
+
+  @Patch("/:roomId/advanced-privacy")
+  async setAdvancedPrivacy(
+    @Req() req: any,
+    @Param() dto: MongoRoomIdDto,
+    @Body("enabled") enabled: any,
+  ) {
+    dto.myUser = req.user;
+    const v = typeof enabled === 'string' ? enabled === 'true' : Boolean(enabled);
+    return resOK(await this.channelService.setAdvancedPrivacy(dto, v));
+  }
+
+  @Get("/:roomId/disappearing")
+  async getDisappearingTimer(@Req() req: any, @Param() dto: MongoRoomIdDto) {
+    dto.myUser = req.user;
+    return resOK(await this.channelService.getDisappearingTimer(dto));
+  }
+
+  @Patch("/:roomId/disappearing")
+  async setDisappearingTimer(
+    @Req() req: any,
+    @Param() dto: MongoRoomIdDto,
+    @Body("expireSeconds") expireSeconds: any,
+  ) {
+    dto.myUser = req.user;
+    return resOK(
+      await this.channelService.setDisappearingTimer(
+        dto,
+        typeof expireSeconds === 'string' ? parseInt(expireSeconds, 10) : expireSeconds,
+      ),
+    );
   }
 
   @Patch("/:roomId/notification/un-mute")

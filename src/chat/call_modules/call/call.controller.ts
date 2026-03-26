@@ -78,6 +78,16 @@ export class CallController {
         return resOK(await this.callService.endCallV2(dto))
     }
 
+    @Post('/switch-audio-video/:callId')
+    async switchAudioVideo(
+        @Req() req: any,
+        @Param() dto: MongoCallIdDto,
+        @Body() body: any,
+    ) {
+        dto.myUser = req.user;
+        return resOK(await this.callService.switchAudioVideo(dto, body?.withVideo))
+    }
+
     @Post('/invite/:callId')
     async inviteToCall(
         @Req() req: any,

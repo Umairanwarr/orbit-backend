@@ -72,7 +72,7 @@ export class SendMessageDto extends CommonDto {
             _id: this._id,
             sId: this.myUser._id,
             sName: this.myUser.fullName,
-            sImg: this.myUser.userImage,
+            sImg: this.myUser.userImage || '/v-public/default_user_image.png',
             plm: this._platform,
             rId: this._roomId,
             isOneSeen: typeof this.isOneSeen === 'string' ? this.isOneSeen === "true" : this.isOneSeen,

@@ -12,6 +12,7 @@ import { FileUploaderModule } from "../../common/file_uploader/file_uploader.mod
 import { NotificationEmitterModule } from "../../common/notification_emitter/notification_emitter.module";
 import {MailEmitterModule} from "../mail/mail.emitter.module";
 import {LoyaltyPointsModule} from "../user_modules/loyalty_points/loyalty_points.module";
+import { SmsModule } from "../../common/sms/sms.module";
 
 @Module({
   controllers: [AuthController],
@@ -41,6 +42,7 @@ import {LoyaltyPointsModule} from "../user_modules/loyalty_points/loyalty_points
     UserDeviceModule,
     NotificationEmitterModule,
     MailEmitterModule,
+    SmsModule,
     forwardRef(() => LoyaltyPointsModule),
   ]
 })

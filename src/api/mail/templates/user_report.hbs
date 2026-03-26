@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{{appName}} - New User Report</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1f2937; }
+      .card { max-width: 640px; margin: 24px auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; }
+      .header { background: #111827; color: #ffffff; padding: 16px 20px; font-size: 16px; font-weight: 600; }
+      .content { padding: 20px; }
+      .row { margin: 8px 0; }
+      .label { color: #6b7280; width: 140px; display: inline-block; }
+      .value { color: #111827; font-weight: 600; }
+      .box { background: #f9fafb; padding: 14px; border-radius: 8px; border: 1px solid #e5e7eb; white-space: pre-wrap; }
+      .footer { padding: 16px 20px; color: #6b7280; font-size: 12px; border-top: 1px solid #e5e7eb; }
+      a { color: #2563eb; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="header">New User Report - {{appName}}</div>
+      <div class="content">
+        <div class="row"><span class="label">Reporter:</span> <span class="value">{{reporterName}}</span></div>
+        {{#if reporterEmail}}
+        <div class="row"><span class="label">Reporter Email:</span> <span class="value">{{reporterEmail}}</span></div>
+        {{/if}}
+        <div class="row"><span class="label">Reporter ID:</span> <span class="value">{{reporterId}}</span></div>
+
+        <div style="height: 8px"></div>
+
+        <div class="row"><span class="label">Target:</span> <span class="value">{{targetName}}</span></div>
+        {{#if targetEmail}}
+        <div class="row"><span class="label">Target Email:</span> <span class="value">{{targetEmail}}</span></div>
+        {{/if}}
+        <div class="row"><span class="label">Target ID:</span> <span class="value">{{targetId}}</span></div>
+
+        <div style="height: 8px"></div>
+
+        <div class="row"><span class="label">Type:</span> <span class="value">{{type}}</span></div>
+        <div class="row"><span class="label">Reported At:</span> <span class="value">{{createdAt}}</span></div>
+        <div class="row"><span class="label">Details:</span></div>
+        <div class="box">{{content}}</div>
+      </div>
+      <div class="footer">
+        This email was sent automatically by {{appName}}. Please review the report and take appropriate action in the admin panel.
+      </div>
+    </div>
+  </body>
+</html>

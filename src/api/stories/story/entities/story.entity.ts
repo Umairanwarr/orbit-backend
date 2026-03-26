@@ -52,5 +52,44 @@ export const StorySchema: Schema = new Schema(
         timestamps: true,
     },
 );
+// Transform to ensure story media URLs are properly formatted
+StorySchema.set('toJSON', {
+    transform: function(doc, ret) {
+        if (ret.att && ret.att.url) {
+            // If URL is a full HTTP URL, extract just the pathname
+            if (ret.att.url.startsWith('http')) {
+                const url = new URL(ret.att.url);
+                ret.att.url = url.pathname;
+                console.log(`Story toJSON transform - Extracted path from URL: ${ret.att.url}`);
+            }
+            // If URL doesn't start with /, it needs /media/ prefix (userId/filename format)
+            else if (!ret.att.url.startsWith('/')) {
+                ret.att.url = `/media/${ret.att.url}`;
+                console.log(`Story toJSON transform - Added /media/ prefix: ${ret.att.url}`);
+            }
+        }
+        return ret;
+    }
+});
+
+StorySchema.set('toObject', {
+    transform: function(doc, ret) {
+        if (ret.att && ret.att.url) {
+            // If URL is a full HTTP URL, extract just the pathname
+            if (ret.att.url.startsWith('http')) {
+                const url = new URL(ret.att.url);
+                ret.att.url = url.pathname;
+                console.log(`Story toObject transform - Extracted path from URL: ${ret.att.url}`);
+            }
+            // If URL doesn't start with /, it needs /media/ prefix (userId/filename format)
+            else if (!ret.att.url.startsWith('/')) {
+                ret.att.url = `/media/${ret.att.url}`;
+                console.log(`Story toObject transform - Added /media/ prefix: ${ret.att.url}`);
+            }
+        }
+        return ret;
+    }
+});
+
 StorySchema.plugin(aggregatePaginate);
 StorySchema.index({somePeople:1});

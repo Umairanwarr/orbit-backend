@@ -5,6 +5,7 @@
  */
 
 import {Module} from "@nestjs/common";
+import { MongooseModule } from '@nestjs/mongoose';
 import {AdminPanelService} from "./admin_panel.service";
 import {AdminPanelController} from "./admin_panel.controller";
 import {AppConfigModule} from "../app_config/app_config.module";
@@ -32,9 +33,21 @@ import {BroadcastSettingsModule} from "../../chat/broadcast_settings/broadcast_s
 import {OrderRoomSettingsModule} from "../../chat/order_room_settings/order_room_settings.module";
 import {MessageModule} from "../../chat/message/message.module";
 import {ReportSystemModule} from "../report_system/report_system.module";
-import {GroupMemberModule} from "../../chat/group_member/group_member.module";
-import {StoryModule} from "../stories/story/story.module";
-import {GiftModule} from "../gifts/gift.module";
+ import {GroupMemberModule} from "../../chat/group_member/group_member.module";
+ import {GroupMessageStatusModule} from "../../chat/group_message_status/group_message_status.module";
+ import {StoryModule} from "../stories/story/story.module";
+ import {GiftModule} from "../gifts/gift.module";
+ import { LiveStreamModule } from "../live_stream/live_stream.module";
+ import { LiveCategorySchema } from "../live_stream/schemas/live_category.schema";
+import { VerificationModule } from "../verification/verification.module";
+import { AdsModule } from "../ads/ads.module";
+import { DriverApplicationsModule } from "../drivers/driver_applications.module";
+import { SellerApplicationsModule } from "../sellers/seller_applications.module";
+import { EmergencyContactModule } from "../user_modules/emergency_contact/emergency_contact.module";
+import { WithdrawRequestsModule } from "../wallet/withdraw_requests.module";
+import { MarketplaceListingsModule } from "../marketplace/marketplace_listings.module";
+import { MusicModule } from "../music/music.module";
+import { ArticlesModule } from "../articles/articles.module";
 
 @Module({
     controllers: [AdminPanelController],
@@ -48,6 +61,10 @@ import {GiftModule} from "../gifts/gift.module";
         ChannelAdminService
     ],
     imports: [
+        MongooseModule.forFeature([
+            { name: 'LiveCategory', schema: LiveCategorySchema },
+        ]),
+        LiveStreamModule,
         UserModule,
         AuthModule,
         FileUploaderModule,
@@ -68,9 +85,19 @@ import {GiftModule} from "../gifts/gift.module";
         OrderRoomSettingsModule,
         ReportSystemModule,
         GroupMemberModule,
+        GroupMessageStatusModule,
         StoryModule,
         GiftModule,
-        SocketIoModule
+        SocketIoModule,
+        VerificationModule,
+        AdsModule,
+        DriverApplicationsModule,
+        SellerApplicationsModule,
+        EmergencyContactModule,
+        WithdrawRequestsModule,
+        MarketplaceListingsModule,
+        MusicModule,
+        ArticlesModule
     ]
 })
 export class AdminPanelModule {

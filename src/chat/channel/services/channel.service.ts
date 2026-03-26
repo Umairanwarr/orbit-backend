@@ -47,6 +47,34 @@ export class ChannelService {
     private readonly userBan: UserBanService
   ) {}
 
+  /**
+   * If the room is single/order, and the peer user restricts profile photo visibility
+   * to an allow-list, mask the room image for viewers not in that list.
+   */
+  private async _maskRoomPeerImage(room: any, viewerId: string) {
+    try {
+      const type = room?.rT || room?.roomType;
+      // Only for single or order chats where pId is the peer user id
+      if (type === 's' || type === 'o' || type === 'Single' || type === 'Order') {
+        const peerId = (room?.pId && room.pId.toString) ? room.pId.toString() : String(room?.pId || '');
+        if (!peerId) return room;
+        const peer = await this.userService.findById(peerId, 'userPrivacy userImage');
+        if (!peer) return room;
+        const allowList: string[] = (peer as any)?.userPrivacy?.profilePicAllowedUsers || [];
+        const blockList: string[] = (peer as any)?.userPrivacy?.profilePicBlockedUsers || [];
+        const restricted = Array.isArray(allowList) && allowList.length > 0;
+        const isBlocked = Array.isArray(blockList) && blockList.map(String).includes(String(viewerId));
+        const allowed = !restricted || allowList.map(String).includes(String(viewerId)) || String(viewerId) === String(peerId);
+        if (isBlocked && String(viewerId) !== String(peerId)) {
+          room.img = "/v-public/default_user_image.png";
+        } else if (!allowed) {
+          room.img = "/v-public/default_user_image.png";
+        }
+      }
+    } catch (_) {}
+    return room;
+  }
+
   async findCommonGroups(userId1: string, userId2: string) {
     // 1. Find all room memberships for both users
     const [user1Memberships, user2Memberships] = await Promise.all([
@@ -85,8 +113,64 @@ export class ChannelService {
         // skip if room not found or error
       }
     }
-
     return commonRooms;
+  }
+
+  async getAdvancedPrivacy(dto: MongoRoomIdDto) {
+    const rM: IRoomMember = await this.middlewareService.isThereRoomMemberOrThrow(
+      dto.roomId,
+      dto.myUser._id,
+    );
+    if (rM.rT !== RoomType.Single) {
+      throw new BadRequestException("Advanced chat privacy supported for single chats only");
+    }
+    const settings = await this.singleRoomSetting.findById(dto.roomId);
+    return {
+      enabled: settings ? Boolean((settings as any)["acp"]) : false,
+    };
+  }
+
+  async setAdvancedPrivacy(dto: MongoRoomIdDto, enabled: boolean) {
+    const rM: IRoomMember = await this.middlewareService.isThereRoomMemberOrThrow(
+      dto.roomId,
+      dto.myUser._id,
+    );
+    if (rM.rT !== RoomType.Single) {
+      throw new BadRequestException("Advanced chat privacy supported for single chats only");
+    }
+    await this.singleRoomSetting.findByIdAndUpdate(dto.roomId, { acp: !!enabled });
+
+    // Create an info message banner
+    const infoMessageDto = {
+      sId: dto.myUser._id,
+      sName: dto.myUser.fullName,
+      sImg: dto.myUser.userImage,
+      plm: "web",
+      rId: dto.roomId,
+      c: enabled ? "Advanced chat privacy enabled" : "Advanced chat privacy disabled",
+      mT: MessageType.Info,
+      msgAtt: {
+        adminName: dto.myUser.fullName,
+        targetName: "",
+        targetId: dto.myUser._id,
+        action: enabled
+          ? MessageInfoType.AdvancedPrivacyEnabled
+          : MessageInfoType.AdvancedPrivacyDisabled,
+      },
+      lId: require("crypto").randomUUID(),
+      isOneSeen: false,
+      oneSeenBy: [],
+      mentions: [],
+      stars: [],
+      dF: [],
+      isEncrypted: false,
+    };
+    const infoMessage = await this.messageService.createOneFromJson(infoMessageDto);
+    this.socket.io
+      .to(dto.roomId.toString())
+      .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(infoMessage));
+
+    return { enabled };
   }
 
   async getAllRoomsForUser(userId: string) {
@@ -136,6 +220,8 @@ export class ChannelService {
           " to user" +
           dto.userId
       );
+    // Mask peer image for restricted profile photo visibility
+    room = await this._maskRoomPeerImage(room, dto.userId.toString());
     return room;
   }
 
@@ -220,6 +306,16 @@ export class ChannelService {
       dto.peerId,
       "userImage fullName fullNameEn"
     );
+    let orderType = "";
+    try {
+      if (typeof dto.orderData === "string") {
+        orderType = (JSON.parse(dto.orderData) || {}).type || "";
+      } else {
+        orderType = (dto.orderData || {}).type || "";
+      }
+    } catch (_) {
+      orderType = "";
+    }
     if (dto.peerId == dto.myUser._id) {
       throw new BadRequestException("Cant start chat with your self!");
     }
@@ -235,12 +331,43 @@ export class ChannelService {
         throw new BadRequestException(
           "You are try to create a room for order id that already has room between another users orderId must be unique for your order!"
         );
-      let data = await this._getOneFullRoomModel({
-        roomId: oldRoomSettings._id,
-        userId: dto.myUser._id,
-        deleteIsDKey: true,
-      });
-      if (dto.orderData) {
+
+      if (orderType === "marketplace_listing") {
+        await this.orderRoomSetting.findOneAndUpdate(
+          {
+            orderId: dto.orderId,
+          },
+          {
+            pinData: dto.orderData,
+            orderTitle: null,
+            orderImage: null,
+          }
+        );
+        await this.roomMemberService.updateMany(
+          {
+            rId: oldRoomSettings._id,
+            uId: dto.myUser._id,
+          },
+          {
+            t: peerUser.fullName,
+            tEn: remove(peerUser.fullNameEn),
+            img: peerUser.userImage,
+            pId: peerUser._id,
+          }
+        );
+        await this.roomMemberService.updateMany(
+          {
+            rId: oldRoomSettings._id,
+            uId: peerUser._id,
+          },
+          {
+            t: dto.myUser.fullName,
+            tEn: remove(dto.myUser.fullNameEn),
+            img: dto.myUser.userImage,
+            pId: dto.myUser._id,
+          }
+        );
+      } else if (dto.orderData) {
         await this.orderRoomSetting.findOneAndUpdate(
           {
             orderId: dto.orderId,
@@ -250,15 +377,20 @@ export class ChannelService {
           }
         );
       }
-      return data;
+
+      return await this._getOneFullRoomModel({
+        roomId: oldRoomSettings._id,
+        userId: dto.myUser._id,
+        deleteIsDKey: true,
+      });
     }
     let roomSettingId = newMongoObjId().toString();
     await this.orderRoomSetting.create({
       _id: roomSettingId.toString(),
       cId: dto.myUser._id,
       pId: dto.peerId,
-      orderTitle: dto.orderTitle,
-      orderImage: dto.orderImage,
+      orderTitle: orderType === "marketplace_listing" ? null : dto.orderTitle,
+      orderImage: orderType === "marketplace_listing" ? null : dto.orderImage,
       orderId: dto.orderId,
       pinData: dto.orderData,
     });
@@ -268,9 +400,15 @@ export class ChannelService {
         rId: roomSettingId,
         lSMId: roomSettingId,
         rT: RoomType.Order,
-        t: dto.orderTitle ?? peerUser.fullName,
-        tEn: dto.orderTitle ?? remove(peerUser.fullNameEn),
-        img: dto.orderImage ?? peerUser.userImage,
+        t: orderType === "marketplace_listing"
+          ? peerUser.fullName
+          : dto.orderTitle ?? peerUser.fullName,
+        tEn: orderType === "marketplace_listing"
+          ? remove(peerUser.fullNameEn)
+          : dto.orderTitle ?? remove(peerUser.fullNameEn),
+        img: orderType === "marketplace_listing"
+          ? peerUser.userImage
+          : dto.orderImage ?? peerUser.userImage,
         pId: dto.peerId,
         isD: true,
         orderId: dto.orderId,
@@ -280,9 +418,15 @@ export class ChannelService {
         rId: roomSettingId,
         lSMId: roomSettingId,
         rT: RoomType.Order,
-        t: dto.orderTitle ?? dto.myUser.fullName,
-        tEn: dto.orderTitle ?? remove(dto.myUser.fullNameEn),
-        img: dto.orderImage ?? dto.myUser.userImage,
+        t: orderType === "marketplace_listing"
+          ? dto.myUser.fullName
+          : dto.orderTitle ?? dto.myUser.fullName,
+        tEn: orderType === "marketplace_listing"
+          ? remove(dto.myUser.fullNameEn)
+          : dto.orderTitle ?? remove(dto.myUser.fullNameEn),
+        img: orderType === "marketplace_listing"
+          ? dto.myUser.userImage
+          : dto.orderImage ?? dto.myUser.userImage,
         pId: dto.myUser._id,
         orderId: dto.orderId,
         isD: true,
@@ -390,11 +534,18 @@ export class ChannelService {
       myIdObj: newMongoObjId(userId),
       filter: filter,
     });
-    return await this.roomMemberService.aggregateV2(
+    const res = await this.roomMemberService.aggregateV2(
       stages,
       paginationParameters[1].page,
       paginationParameters[1].limit
     );
+    // Post-process docs to mask peer image when restricted
+    if (res && Array.isArray(res.docs)) {
+      res.docs = await Promise.all(
+        res.docs.map((r: any) => this._maskRoomPeerImage(r, userId))
+      );
+    }
+    return res;
   }
 
   //invoked only if room not exist in the peer he will request it
@@ -474,6 +625,73 @@ export class ChannelService {
     return {
       isUpdated: false,
     };
+  }
+
+  async seenRoomMessages(dto: MongoRoomIdDto) {
+    let rMember: IRoomMember = await this.middlewareService.isThereRoomMemberOrThrow(
+      dto.roomId,
+      dto.myUser._id
+    );
+    await this.roomMemberService.findOneAndUpdate({
+      uId: dto.myUser._id,
+      rId: dto.roomId.toString(),
+    }, { lSMId: newMongoObjId().toString() });
+
+    const allowReadReceipts = dto.myUser?.userPrivacy?.readReceipts !== false;
+    if (!allowReadReceipts) {
+      return { isUpdated: false };
+    }
+
+    if (rMember.rT == RoomType.Single || rMember.rT == RoomType.Order) {
+      let res = await this.messageService.setMessageSeenForSingleChat(
+        dto.myUser._id,
+        dto.roomId.toString(),
+      );
+      let isUpdated = res['modifiedCount'] != 0;
+      if (isUpdated) {
+        this.socket.io.to(dto.roomId.toString()).emit(
+          SocketEventsType.v1OnEnterChatRoom,
+          JSON.stringify({
+            roomId: dto.roomId.toString(),
+            //it right because i need to notify the other person i chat with him no me!
+            userId: rMember.pId.toString(),
+            date: new Date(),
+          }),
+        );
+      }
+      return { isUpdated: isUpdated };
+    } else if (rMember.rT == RoomType.GroupChat) {
+      await this.messageService.setMessageSeenForGroupChat(
+        dto.myUser._id,
+        dto.roomId,
+      );
+      this.socket.io.to(dto.roomId.toString()).emit(
+        SocketEventsType.v1OnGroupMessageStatus,
+        JSON.stringify({
+          roomId: dto.roomId.toString(),
+          userId: dto.myUser._id.toString(),
+          userName: dto.myUser.fullName,
+          userImage: dto.myUser.userImage,
+          status: 'seen',
+          seenAt: new Date(),
+        }),
+      );
+      return { isUpdated: true };
+    } else if (rMember.rT == RoomType.Broadcast) {
+      this.socket.io.to(dto.roomId.toString()).emit(
+        SocketEventsType.v1OnBroadcastMessageStatus,
+        JSON.stringify({
+          roomId: dto.roomId.toString(),
+          userId: dto.myUser._id.toString(),
+          userName: dto.myUser.fullName,
+          userImage: dto.myUser.userImage,
+          status: 'seen',
+          seenAt: new Date(),
+        }),
+      );
+      return { isUpdated: true };
+    }
+    return { isUpdated: false };
   }
 
   async changeNickName(dto: MongoRoomIdDto, name?: string) {
@@ -765,6 +983,134 @@ export class ChannelService {
     return "Room isOneSeen false";
   }
 
+  async getDisappearingTimer(dto: MongoRoomIdDto) {
+    // Ensure membership and only allow for single chats for now
+    const rM: IRoomMember = await this.middlewareService.isThereRoomMemberOrThrow(
+      dto.roomId,
+      dto.myUser._id,
+    );
+    if (rM.rT !== RoomType.Single) {
+      throw new BadRequestException("Disappearing messages supported for single chats only");
+    }
+    const settings = await this.singleRoomSetting.findById(dto.roomId);
+    return {
+      expireSeconds: settings ? (settings as any)["dmExpSec"] ?? null : null,
+      sinceAt: settings ? (settings as any)["dmSinceAt"] ?? null : null,
+    };
+  }
+
+  async setDisappearingTimer(dto: MongoRoomIdDto, expireSeconds?: number | null) {
+    const rM: IRoomMember = await this.middlewareService.isThereRoomMemberOrThrow(
+      dto.roomId,
+      dto.myUser._id,
+    );
+    if (rM.rT !== RoomType.Single) {
+      throw new BadRequestException("Disappearing messages supported for single chats only");
+    }
+    let update: any = {};
+    const toInt = (v: any) => {
+      try {
+        return Math.floor(Number(v));
+      } catch (_) {
+        return NaN;
+      }
+    };
+    const humanize = (sec: number) => {
+      if (!sec || sec <= 0) return '';
+      if (sec < 60) return `for ${sec} second${sec === 1 ? '' : 's'}`;
+      if (sec < 3600) {
+        const m = Math.round(sec / 60);
+        return `for ${m} minute${m === 1 ? '' : 's'}`;
+      }
+      if (sec < 86400) {
+        const h = Math.round(sec / 3600);
+        return `for ${h} hour${h === 1 ? '' : 's'}`;
+      }
+      if (sec < 604800) {
+        const d = Math.round(sec / 86400);
+        return `for ${d} day${d === 1 ? '' : 's'}`;
+      }
+      const w = Math.round(sec / 604800);
+      return `for ${w} week${w === 1 ? '' : 's'}`;
+    };
+
+    const secs = toInt(expireSeconds);
+    if (!secs || isNaN(secs) || secs <= 0) {
+      update = { dmExpSec: null, dmSinceAt: null };
+      await this.singleRoomSetting.findByIdAndUpdate(dto.roomId, update);
+
+      // Emit info message: Disappearing disabled
+      const infoMessageDto = {
+        sId: dto.myUser._id,
+        sName: dto.myUser.fullName,
+        sImg: dto.myUser.userImage,
+        plm: "web",
+        rId: dto.roomId,
+        c: "Disappearing messages disabled",
+        mT: MessageType.Info,
+        msgAtt: {
+          adminName: dto.myUser.fullName,
+          targetName: "",
+          targetId: dto.myUser._id,
+          action: MessageInfoType.DisappearingDisabled,
+        },
+        lId: require("crypto").randomUUID(),
+        isOneSeen: false,
+        oneSeenBy: [],
+        mentions: [],
+        stars: [],
+        dF: [],
+        isEncrypted: false,
+      };
+      const infoMessage = await this.messageService.createOneFromJson(infoMessageDto);
+      this.socket.io
+        .to(dto.roomId.toString())
+        .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(infoMessage));
+
+      return {
+        expireSeconds: update.dmExpSec,
+        sinceAt: update.dmSinceAt,
+      };
+    } else {
+      update = { dmExpSec: secs, dmSinceAt: new Date() };
+      await this.singleRoomSetting.findByIdAndUpdate(dto.roomId, update);
+
+      // Emit info message: Disappearing enabled with duration
+      const durationText = humanize(secs);
+      const infoMessageDto = {
+        sId: dto.myUser._id,
+        sName: dto.myUser.fullName,
+        sImg: dto.myUser.userImage,
+        plm: "web",
+        rId: dto.roomId,
+        c: "Disappearing messages enabled",
+        mT: MessageType.Info,
+        msgAtt: {
+          adminName: dto.myUser.fullName,
+          targetName: durationText, // e.g., "for 1 hour"
+          targetId: dto.myUser._id,
+          action: MessageInfoType.DisappearingEnabled,
+        },
+        lId: require("crypto").randomUUID(),
+        isOneSeen: false,
+        oneSeenBy: [],
+        mentions: [],
+        stars: [],
+        dF: [],
+        isEncrypted: false,
+      };
+      const infoMessage = await this.messageService.createOneFromJson(infoMessageDto);
+      this.socket.io
+        .to(dto.roomId.toString())
+        .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(infoMessage));
+
+      return {
+        expireSeconds: update.dmExpSec,
+        sinceAt: update.dmSinceAt,
+      };
+    }
+  }
+
   private getChannelStagesV3(dto) {
     return [
       {
@@ -782,6 +1128,7 @@ export class ChannelService {
                     { $gt: ["$_id", "$$lastSeenId"] },
                     { $eq: ["$rId", "$$roomId"] },
                     { $ne: ["$sId", "$$userId"] },
+                    { $eq: ["$dltAt", null] },
                   ],
                 },
               },
@@ -808,9 +1155,14 @@ export class ChannelService {
             {
               $match: {
                 $expr: {
-                  $not: {
-                    $in: [dto.myIdObj, "$dF"],
-                  },
+                  $and: [
+                    {
+                      $not: {
+                        $in: [dto.myIdObj, "$dF"],
+                      },
+                    },
+                    { $eq: ["$dltAt", null] },
+                  ],
                 },
               },
             },
@@ -866,6 +1218,7 @@ export class ChannelService {
                     { $eq: ["$rId", "$$roomId"] },
                     { $ne: ["$sId", "$$userId"] },
                     { $in: ["$$userId", { $ifNull: ["$mentions", []] }] },
+                    { $eq: ["$dltAt", null] },
                   ],
                 },
               },

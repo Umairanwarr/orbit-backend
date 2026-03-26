@@ -58,6 +58,81 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Email (SendGrid) Setup
+
+This project supports SendGrid via SMTP out of the box. Configure the following environment variables in your environment files at `backend/src/`:
+
+Create or edit `.env.development` and `.env.production` (examples are provided as `.env.development.example` and `.env.production.example`). Minimum required keys:
+
+```
+# SendGrid SMTP
+SENDGRID_API_KEY=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+EMAIL_HOST=smtp.sendgrid.net
+EMAIL_PORT=587          # 587 recommended; alternatively 2525
+EMAIL_SECURE=false      # true only if you use port 465
+EMAIL_FROM=no-reply@orbit.ke   # must be a verified sender/domain in SendGrid
+EMAIL_TO=info@orbit.ke         # optional: default admin recipient
+
+# Optional timeouts and debug
+EMAIL_DEBUG=false
+EMAIL_CONNECTION_TIMEOUT=10000
+EMAIL_GREETING_TIMEOUT=10000
+EMAIL_SOCKET_TIMEOUT=10000
+```
+
+Notes:
+
+- Verify your single sender or domain in SendGrid before sending.
+- On DigitalOcean, port 25 is blocked. Port 587 usually works; 2525 is also supported by SendGrid.
+
+### Test SMTP locally
+
+Use the included script to verify configuration and send a test email:
+
+```
+# Development env
+node src/scripts/test-smtp.js --env=development
+
+# Production env
+node src/scripts/test-smtp.js --env=production
+
+# Or load a specific file
+node src/scripts/test-smtp.js --env-file=/absolute/path/to/.env.custom
+```
+
+The script will print the chosen provider, host, port, and will attempt a connection and send a test email to `TEST_EMAIL_TO` or `EMAIL_TO` (falls back to `EMAIL_FROM`).
+
+### Deploying on DigitalOcean
+
+- Place your `.env.production` in `backend/src/` on the server.
+- Build and start with PM2 (example):
+
+```
+npm ci
+npm run build
+pm2 start ecosystem.config.js --env production
+```
+
+PM2 will set `NODE_ENV=production`, and the app will load `backend/src/.env.production` automatically as configured in `src/app.module.ts` (`ConfigModule.forRoot`).
+
+## SMS (Twilio) Setup (Phone Registration)
+
+Phone number registration sends verification links via SMS using Twilio. Configure the following environment variables:
+
+```
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Either provide a sender phone OR a messaging service SID
+TWILIO_FROM=+1234567890
+TWILIO_MESSAGING_SERVICE_SID=MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Notes:
+
+- `TWILIO_FROM` must be a Twilio-owned phone number in E.164 format.
+- If you set `TWILIO_MESSAGING_SERVICE_SID`, the backend will use it instead of `TWILIO_FROM`.
+
 ## Support
 
 Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).

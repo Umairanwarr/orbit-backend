@@ -23,6 +23,7 @@ import {AppConfigModule} from "../../api/app_config/app_config.module";
 import {GroupMessageStatusModule} from "../group_message_status/group_message_status.module";
 import {UserBanModule} from "../../api/user_modules/user_ban/user_ban.module";
 import {OrderRoomSettingsModule} from "../order_room_settings/order_room_settings.module";
+import { MarketplaceListingsModule } from "../../api/marketplace/marketplace_listings.module";
 import {GroupChannelController} from "./controllers/group.channel.controller";
 import {BroadcastChannelController} from "./controllers/broadcast.channel.controller";
 import {MessageChannelController} from "./controllers/message.channel.controller";
@@ -34,6 +35,7 @@ import {ChannelController} from "./controllers/channel.controller";
 import {NotificationEmitterChannelService} from "./services/notification_emitter_channel.service";
 import {UserDeviceModule} from "../../api/user_modules/user_device/user_device.module";
 import {LoyaltyPointsModule} from "../../api/user_modules/loyalty_points/loyalty_points.module";
+import { DisappearingMessageCronService } from './services/disappearing_message.cron';
 
 @Module({
     controllers: [
@@ -47,7 +49,8 @@ import {LoyaltyPointsModule} from "../../api/user_modules/loyalty_points/loyalty
         GroupChannelService,
         BroadcastChannelService,
         MessageChannelService,
-        NotificationEmitterChannelService
+        NotificationEmitterChannelService,
+        DisappearingMessageCronService
     ],
     imports: [
         UserModule,
@@ -67,12 +70,14 @@ import {LoyaltyPointsModule} from "../../api/user_modules/loyalty_points/loyalty
         GroupMessageStatusModule,
         UserBanModule,
         OrderRoomSettingsModule,
+        MarketplaceListingsModule,
         UserDeviceModule,
         LoyaltyPointsModule
     ],
     exports: [
         ChannelService,
-        MessageChannelService
+        MessageChannelService,
+        GroupChannelService
     ]
 })
 export class ChannelModule {

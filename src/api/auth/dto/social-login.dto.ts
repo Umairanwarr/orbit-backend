@@ -1,6 +1,6 @@
 // social-login.dto.ts
-import { IsEnum, IsOptional, IsString } from "class-validator";
-import { RegisterMethod } from "src/core/utils/enums";
+import { IsBoolean, IsEnum, IsOptional, IsString } from "class-validator";
+import { Platform, RegisterMethod } from "src/core/utils/enums";
 
 export class SocialLoginDto {
   @IsString()
@@ -15,8 +15,8 @@ export class SocialLoginDto {
   @IsString()
   language: string;
 
-  @IsString()
-  platform: string;
+  @IsEnum(Platform)
+  platform: Platform;
 
   @IsString()
   pushKey: string;
@@ -24,6 +24,10 @@ export class SocialLoginDto {
   @IsOptional()
   @IsString()
   ip?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  rememberMe?: boolean;
 
   @IsOptional()
   @IsEnum(RegisterMethod)

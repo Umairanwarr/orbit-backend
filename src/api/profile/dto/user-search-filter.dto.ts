@@ -11,6 +11,10 @@ export class UserSearchFilterDto {
   gender?: string;
 
   @IsOptional()
+  @IsString()
+  profession?: string;
+
+  @IsOptional()
   @Transform(({ value }) => value === 'true')
   @IsBoolean()
   verifiedOnly?: boolean;

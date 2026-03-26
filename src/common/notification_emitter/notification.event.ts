@@ -12,7 +12,7 @@ import {CreateNotificationBody} from "onesignal-node/lib/types";
 import {getMessaging, Messaging} from "firebase-admin/messaging";
 import {UserService} from "../../api/user_modules/user/user.service";
 import {UserDeviceService} from "../../api/user_modules/user_device/user_device.service";
-import {CallStatus, PushTopics} from "../../core/utils/enums";
+import {CallStatus, PushTopics, Platform, VPushProvider} from "../../core/utils/enums";
 import path from "path";
 import root from "app-root-path";
 import apn from "@parse/node-apn";
@@ -83,6 +83,7 @@ export class NotificationEvent {
         if (!this.onesignalClient) {
             return;
         }
+        console.log('[Push][OneSignal][Subscribe] token:', (token || '').toString().slice(0, 10) + '...', 'topic:', topic);
         await this.onesignalClient.editDevice(token, {"tags": {[topic]: true}});
     }
 
@@ -91,6 +92,7 @@ export class NotificationEvent {
         let token = event["token"];
         let topic = event["topic"];
         if (this.messaging) {
+            console.log('[Push][FCM][Subscribe] token:', (token || '').toString().slice(0, 10) + '...', 'topic:', topic);
             await this.messaging.subscribeToTopic(token, topic);
         }
     }
@@ -100,6 +102,7 @@ export class NotificationEvent {
         let token = event["token"];
         let topic = event["topic"];
         if (this.messaging) {
+            console.log('[Push][FCM][Unsubscribe] token:', (token || '').toString().slice(0, 10) + '...', 'topic:', topic);
             await this.messaging.unsubscribeFromTopic(token, topic);
         }
     }
@@ -107,29 +110,88 @@ export class NotificationEvent {
 
     @OnEvent("send.all.active")
     async sendToAllActiveUsers(title: string, body: string) {
+        console.log('[Push] Emitting Admin Notification. FCM:', this.isFirebaseFcmEnabled, 'OneSignal:', this.isOneSignalEnabled);
+        const isDevEnv = process.env.NODE_ENV === 'development';
+
+        // In development, skip topic sending and use direct multicast to avoid noisy 404s
+        if (isDevEnv && this.isFirebaseFcmEnabled) {
+            try {
+                console.log('[Push][Dev][FCM] Direct multicast to all FCM tokens');
+                const fcmDevices = await this.userDevice.findAll({
+                    pushProvider: VPushProvider.fcm,
+                    pushKey: { $ne: null }
+                }, "pushKey platform");
+                const tokens: string[] = (fcmDevices || [])
+                    .map((d: any) => d.pushKey)
+                    .filter((t: any) => !!t);
+                console.log('[Push][Dev][FCM] Tokens count:', tokens.length);
+                for (let i = 0; i < tokens.length; i += 1000) {
+                    const chunk = tokens.slice(i, i + 1000);
+                    const event = new NotificationData({
+                        tokens: chunk,
+                        title: title,
+                        body: body,
+                        tag: 'admin',
+                        data: { type: 'admin', ts: Date.now().toString() },
+                    });
+                    await this._fcmSend(event, chunk);
+                }
+            } catch (e) {
+                console.log('[Push][Dev][FCM] Error while multicasting:', e?.message || e);
+            }
+            return;
+        }
+
+        console.log('[Push][Topics] Attempting topic sends (non-development)');
         if (this.isFirebaseFcmEnabled) {
             try {
+                console.log('[Push][FCM] sendToTopic ->', PushTopics.AdminAndroid);
                 await this.messaging.sendToTopic(PushTopics.AdminAndroid, {
                     notification: {
-                        body,
-                        title
+                        title: 'Admin Notification',
+                        body: `${title}\n${body}`
                     }
                 }, {
                     contentAvailable: true,
                     priority: "high",
 
                 });
+                console.log('[Push][FCM] sendToTopic ->', PushTopics.AdminIos);
                 await this.messaging.sendToTopic(PushTopics.AdminIos, {
                     notification: {
-                        body,
-                        title
+                        title: 'Admin Notification',
+                        body: `${title}\n${body}`
                     }
                 }, {
                     contentAvailable: true,
                     priority: "high",
                 });
             } catch (err) {
-                console.log(err);
+                console.log('[Push][FCM][Topic] Failed, falling back to direct multicast. Error:', err?.message || err);
+                // Fallback: send directly to all FCM device tokens in batches
+                try {
+                    const fcmDevices = await this.userDevice.findAll({
+                        pushProvider: VPushProvider.fcm,
+                        pushKey: { $ne: null }
+                    }, "pushKey platform");
+                    const tokens: string[] = (fcmDevices || [])
+                        .map((d: any) => d.pushKey)
+                        .filter((t: any) => !!t);
+                    console.log('[Push][FCM][Fallback] Tokens count:', tokens.length);
+                    for (let i = 0; i < tokens.length; i += 1000) {
+                        const chunk = tokens.slice(i, i + 1000);
+                        const event = new NotificationData({
+                            tokens: chunk,
+                            title: title,
+                            body: body,
+                            tag: 'admin',
+                            data: { type: 'admin', ts: Date.now().toString() },
+                        });
+                        await this._fcmSend(event, chunk);
+                    }
+                } catch (e) {
+                    console.log('[Push][FCM][Fallback] Error while multicasting:', e?.message || e);
+                }
             }
         }
         if (this.isOneSignalEnabled) {
@@ -139,11 +201,12 @@ export class NotificationEvent {
                     "Subscribed Users"
                 ],
                 "priority": 10,
-                headings: {"en": title},
+                headings: {"en": 'Admin Notification'},
                 "contents": {
-                    "en": body
+                    "en": `${title}\n${body}`
                 }
             };
+            console.log('[Push][OneSignal] createNotification to segments');
             this.onesignalClient.createNotification(notification)
                 .then(response => {
                     //console.log(response)
@@ -232,6 +295,22 @@ export class NotificationEvent {
                 }
             }
         } as any;
+
+        // Include a visible notification payload whenever title/body are provided.
+        // Keep special heading for admin tag, otherwise use provided title/body.
+        if (!isChatNotification && event.title && event.body) {
+            if ((event as any).tag === 'admin') {
+                baseMessage.notification = {
+                    title: 'Admin Notification',
+                    body: `${event.title}\n${event.body}`,
+                };
+            } else {
+                baseMessage.notification = {
+                    title: event.title,
+                    body: event.body,
+                } as any;
+            }
+        }
 
         this.messaging
             .sendEachForMulticast(baseMessage)

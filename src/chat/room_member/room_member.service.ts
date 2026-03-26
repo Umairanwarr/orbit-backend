@@ -24,10 +24,12 @@ export class RoomMemberService extends BaseRoomService<IRoomMember> {
     super();
   }
   async findCommonRooms(userIds: string[]) {
+    // Convert incoming string IDs to ObjectId to match schema types
+    const ids = userIds.map((id) => new mongoose.Types.ObjectId(id));
     const pipeline = [
       {
         $match: {
-          uId: { $in: userIds.map((id) => id) },
+          uId: { $in: ids },
           isD: false,
         },
       },

@@ -4,7 +4,7 @@
  * MIT license that can be found in the LICENSE file.
  */
 
-import {Allow, IsEmail, IsEnum, IsNotEmpty, MaxLength, ValidateIf} from "class-validator";
+import {Allow, IsBoolean, IsEmail, IsEnum, IsNotEmpty, IsOptional, MaxLength, ValidateIf} from "class-validator";
 import {Trim} from "class-sanitizer";
 import { Platform, RegisterMethod } from "../../../core/utils/enums";
 
@@ -17,7 +17,7 @@ export default class LoginDto {
     ip: string;
 
     @Allow()
-    @ValidateIf(object => object['registerMethod'] == RegisterMethod.email)
+    @ValidateIf(object => object['method'] == RegisterMethod.email)
     @IsEmail({}, {message: "Email is required and must be email format"})
     @Trim()
     email: string;
@@ -27,6 +27,10 @@ export default class LoginDto {
     @IsNotEmpty()
     @MaxLength(255)
     password: string;
+
+    @IsOptional()
+    @IsBoolean()
+    rememberMe?: boolean;
 
     @Allow()
     @Trim()

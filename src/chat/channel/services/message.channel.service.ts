@@ -42,6 +42,8 @@ import imageSize from "image-size";
 import {NotificationEmitterChannelService} from "./notification_emitter_channel.service";
 import {RoomIdAndMsgIdDto} from "../../../core/common/dto/room.id.and.msg.id.dto";
 import {MongoRoomIdDto} from "../../../core/common/dto/mongo.room.id.dto";
+import { OrderRoomSettingsService } from "../../order_room_settings/single_room_settings.service";
+import { MarketplaceListingsService } from "../../../api/marketplace/marketplace_listings.service";
 import crypto from "crypto";
 import * as Buffer from "buffer";
 const objectIdRegExp = /[a-f\d]{24}/gi;
@@ -64,16 +66,197 @@ export class MessageChannelService {
         private readonly broadcastSetting: BroadcastSettingsService,
         private readonly groupMessageStatusService: GroupMessageStatusService,
         private readonly userBan: UserBanService,
+        private readonly orderRoomSettingsService: OrderRoomSettingsService,
+        private readonly marketplaceListingsService: MarketplaceListingsService,
     ) {
     }
 
+    private _marketplaceListingIdFromOrderId(orderId: any): string {
+        const v = (orderId ?? '').toString().trim();
+        if (!v.startsWith('mp_')) return '';
+        const parts = v.split('_');
+        if (parts.length < 2) return '';
+        return (parts[1] ?? '').toString().trim();
+    }
+
+  // ===== Polls =====
+  async voteInPoll(dto: RoomIdAndMsgIdDto, optionIds: string[]) {
+    await this.middlewareService.isThereRoomMemberOrThrow(
+      dto.roomId,
+      dto.myUser._id,
+    );
+    if (!optionIds || optionIds.length === 0) {
+      throw new BadRequestException('optionIds required');
+    }
+    const chosen = optionIds[0]; // single-choice for now
+    const msg = await this.messageService.getByIdOrFail(dto.messageId);
+    if (!msg) throw new BadRequestException('Message not found');
+    if (msg.mT !== MessageType.Custom) {
+      throw new BadRequestException('Not a poll message');
+    }
+    const baseAtt: any = msg.msgAtt || {};
+    const pollAtt: any = baseAtt && baseAtt.data ? baseAtt.data : baseAtt;
+    if (!pollAtt || pollAtt.type !== 'poll') {
+      throw new BadRequestException('Not a poll attachment');
+    }
+    const options: any[] = pollAtt.options || [];
+    if (!options.find((o) => o.id === chosen)) {
+      throw new BadRequestException('Invalid option id');
+    }
+    // votes: { [optionId]: string[] }
+    const votes = pollAtt.votes || {};
+    const userIdStr = dto.myUser._id.toString();
+    // remove user from all options
+    for (const key of Object.keys(votes)) {
+      const arr: string[] = votes[key] || [];
+      const idx = arr.findIndex((u) => u === userIdStr);
+      if (idx !== -1) {
+        arr.splice(idx, 1);
+      }
+      votes[key] = arr;
+    }
+    // add to chosen
+    const arr = votes[chosen] || [];
+    if (!arr.includes(userIdStr)) arr.push(userIdStr);
+    votes[chosen] = arr;
+
+    pollAtt.votes = votes;
+    const newMsgAtt = baseAtt && baseAtt.data ? { ...baseAtt, data: pollAtt } : pollAtt;
+    await this.messageService.findByIdAndUpdate(dto.messageId, {
+      msgAtt: newMsgAtt,
+      updatedAt: new Date(),
+    });
+    const updated = await this.messageService.getByIdOrFail(dto.messageId);
+    this.socket.io
+      .to(dto.roomId.toString())
+      .emit(SocketEventsType.v1OnUpdateMessage, JSON.stringify(updated));
+    return { ok: true };
+  }
+
+  async getPollResults(dto: RoomIdAndMsgIdDto) {
+    await this.middlewareService.isThereRoomMemberOrThrow(
+      dto.roomId,
+      dto.myUser._id,
+    );
+    const msg = await this.messageService.getByIdOrFail(dto.messageId);
+    if (!msg) throw new BadRequestException('Message not found');
+    if (msg.mT !== MessageType.Custom) {
+      throw new BadRequestException('Not a poll message');
+    }
+    const baseAtt: any = msg.msgAtt || {};
+    const pollAtt: any = baseAtt && baseAtt.data ? baseAtt.data : baseAtt;
+    if (!pollAtt || pollAtt.type !== 'poll') {
+      throw new BadRequestException('Not a poll attachment');
+    }
+    const votes = pollAtt.votes || {};
+    const options: any[] = pollAtt.options || [];
+    const allVoterIds: string[] = Array.from(new Set(Object.values(votes).flat().map((x: any) => x.toString())));
+    let profilesById: Record<string, any> = {};
+    if (allVoterIds.length > 0) {
+      try {
+        const profiles = await this.userService.findByIds(allVoterIds, 'fullName userImage');
+        for (const p of profiles) {
+          profilesById[p._id.toString()] = { id: p._id.toString(), name: p.fullName, image: p.userImage };
+        }
+      } catch (_) {}
+    }
+    const results = options.map((o) => ({
+      id: o.id,
+      text: o.text,
+      voters: (votes[o.id] || []).map((x: any) => x.toString()),
+      voterProfiles: (votes[o.id] || []).map((x: any) => profilesById[x.toString()]).filter(Boolean),
+      count: (votes[o.id] || []).length,
+    }));
+    return {
+      question: pollAtt.question,
+      allowMulti: !!pollAtt.allowMulti,
+      options: results,
+    };
+  }
+
+  async respondToOffer(dto: RoomIdAndMsgIdDto, status: string) {
+    await this.middlewareService.isThereRoomMemberOrThrow(
+      dto.roomId,
+      dto.myUser._id,
+    );
+
+    // Disallow offer actions in closed order rooms
+    try {
+      const settings: any = await this.orderRoomSettingsService.findById(dto.roomId);
+      if (settings && settings.closedAt) {
+        throw new BadRequestException('This chat is closed');
+      }
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+    }
+
+    // Also disallow offers for removed marketplace listings (even if room not marked closed yet)
+    try {
+      const rM: any = await this.roomMemberService.findOne(
+        { rId: dto.roomId, uId: dto.myUser._id },
+        'rT orderId',
+      );
+      if (rM && rM.rT === RoomType.Order) {
+        const listingId = this._marketplaceListingIdFromOrderId(rM.orderId);
+        if (listingId) {
+          await this.marketplaceListingsService.getByIdPublic(listingId);
+        }
+      }
+    } catch (_) {
+      throw new BadRequestException('This listing is no longer available');
+    }
+
+    const s = (status ?? '').toString().trim().toLowerCase();
+    if (s !== 'accepted' && s !== 'declined' && s !== 'countered') {
+      throw new BadRequestException('Invalid status');
+    }
+    const msg = await this.messageService.getByIdOrFail(dto.messageId);
+    if (!msg) throw new BadRequestException('Message not found');
+    if (msg.mT !== MessageType.Custom) {
+      throw new BadRequestException('Not an offer message');
+    }
+    const senderId = msg.sId?.toString();
+    const myId = dto.myUser._id.toString();
+    if (senderId && senderId === myId) {
+      throw new ForbiddenException('You cannot respond to your own offer');
+    }
+    const baseAtt: any = msg.msgAtt || {};
+    const offerAtt: any = baseAtt && baseAtt.data ? baseAtt.data : baseAtt;
+    if (!offerAtt || offerAtt.type !== 'marketplace_offer') {
+      throw new BadRequestException('Not a marketplace offer');
+    }
+    const currentStatus = (offerAtt.status ?? '').toString().trim().toLowerCase();
+    if (currentStatus === 'accepted' || currentStatus === 'declined') {
+      throw new BadRequestException('Offer already finalized');
+    }
+
+    offerAtt.status = s;
+    offerAtt.respondedBy = myId;
+    offerAtt.respondedAt = new Date().toISOString();
+
+    const newMsgAtt = baseAtt && baseAtt.data ? { ...baseAtt, data: offerAtt } : offerAtt;
+    await this.messageService.findByIdAndUpdate(dto.messageId, {
+      msgAtt: newMsgAtt,
+      updatedAt: new Date(),
+    });
+    const updated = await this.messageService.getByIdOrFail(dto.messageId);
+    this.socket.io
+      .to(dto.roomId.toString())
+      .emit(SocketEventsType.v1OnUpdateMessage, JSON.stringify(updated));
+    return { ok: true };
+  }
+
     async createMessage(dto: SendMessageDto, isSilent: boolean = false,) {
+        console.log(`[createMessage] START room=${dto._roomId} localId=${dto.localId} type=${dto.messageType}`);
         let rM: IRoomMember = await this.middlewareService.isThereRoomMember(
             dto._roomId,
             dto.myUser._id,
-            "rT t bId isOneSeen"
+            "rT t bId isOneSeen orderId"
         );
-        if (!rM) throw new ForbiddenException('No room found ' + dto._roomId);
+        if (!rM) {
+            console.log(`[createMessage] ERROR: No room found ${dto._roomId}`);
+            throw new ForbiddenException('No room found ' + dto._roomId);
+        }
         // Convert string to boolean and handle the isOneSeen logic
         let messageIsOneSeen: boolean;
         if (dto.isOneSeen !== undefined && dto.isOneSeen !== null) {
@@ -85,28 +268,74 @@ export class MessageChannelService {
         }
         dto.isOneSeen = messageIsOneSeen as any;
         let ban = await this.userBan.getBan(rM.uId, rM.pId)
-        if (ban) throw new ForbiddenException('You dont have access ' + rM.rT)
+        if (ban) {
+            console.log(`[createMessage] ERROR: User banned`);
+            throw new ForbiddenException('You dont have access ' + rM.rT)
+        }
         let isSingle = rM.rT == RoomType.Single
         let isOrder = rM.rT == RoomType.Order
         let isGroup = rM.rT == RoomType.GroupChat
         let isBroadcast = rM.rT == RoomType.Broadcast
-        // If this is a Channel (group with extraData.isChannel = true), only admins/superAdmins can post
+
+        // Disallow sending messages in closed order rooms
+        if (isOrder) {
+          try {
+            const settings: any = await this.orderRoomSettingsService.findById(dto._roomId);
+            if (settings && settings.closedAt) {
+              throw new ForbiddenException('This chat is closed');
+            }
+          } catch (e) {
+            if (e instanceof ForbiddenException) throw e;
+          }
+
+          // Also disallow messaging for removed marketplace listings (even if room not marked closed yet)
+          try {
+            const listingId = this._marketplaceListingIdFromOrderId((rM as any).orderId);
+            if (listingId) {
+              await this.marketplaceListingsService.getByIdPublic(listingId);
+            }
+          } catch (_) {
+            throw new ForbiddenException('This listing is no longer available');
+          }
+        }
+        // Enforce group posting permissions based on settings.extraData
         if (isGroup) {
             try {
                 const settings = await this.groupSetting.findById(rM.rId);
-                const isChannel = settings && (settings as any)['extraData'] && (settings as any)['extraData']['isChannel'] === true;
-                if (isChannel) {
-                    const myMember = await this.groupMember.findOne({ rId: rM.rId, uId: dto.myUser._id });
-                    if (!myMember || myMember.gR === GroupRoleType.Member) {
-                        throw new ForbiddenException('Only channel admins can post');
-                    }
+                const extra: any = settings && (settings as any)['extraData'] ? (settings as any)['extraData'] : {};
+                const isChannel = extra['isChannel'] === true;
+                const sendPolicy: string = extra['sendPolicy'] || 'all'; // 'all' | 'admins'
+                const mutedUsers: string[] = Array.isArray(extra['mutedUsers'])
+                    ? (extra['mutedUsers'] as any[]).map((x) => x.toString())
+                    : [];
+
+                const myMember = await this.groupMember.findOne({ rId: rM.rId, uId: dto.myUser._id });
+                const isAdmin = !!myMember && (myMember.gR === GroupRoleType.Admin || myMember.gR === GroupRoleType.SuperAdmin);
+
+                // Channels: only admins can post
+                if (isChannel && !isAdmin) {
+                    throw new ForbiddenException('Only channel admins can post');
+                }
+                // Group policy: only admins can send
+                if (sendPolicy === 'admins' && !isAdmin) {
+                    throw new ForbiddenException('Only admins can send messages in this group');
+                }
+                // Per-user mute: block muted non-admins
+                if (!isAdmin && mutedUsers.includes(dto.myUser._id.toString())) {
+                    throw new ForbiddenException('You are not allowed to send messages in this group');
                 }
             } catch (e) {
                 if (e instanceof ForbiddenException) throw e;
+                // ignore other errors and continue
             }
         }
+        console.log(`[createMessage] Checking duplicate localId=${dto.localId}`);
         let isExits = await this.messageService.isMessageExist(dto.localId);
-        if (isExits) throw new ForbiddenException('Message already in database ForbiddenException');
+        if (isExits) {
+            console.log(`[createMessage] ERROR: Message with localId ${dto.localId} already exists!`);
+            throw new ForbiddenException('Message already in database ForbiddenException');
+        }
+        console.log(`[createMessage] No duplicate found, proceeding`);
         if (dto.replyToLocalId) {
             let rToMsg: IMessage | null = await this.messageService.getByLocalId(dto.replyToLocalId)
             if (!rToMsg) throw new ForbiddenException('dto.replyToId msg not exist in db ' + dto.replyToLocalId)
@@ -132,19 +361,24 @@ export class MessageChannelService {
             let isThereBan = await this.userBan.getBan(dto.myUser._id, peer.uId)
             if (isThereBan) throw new ForbiddenException("You dont have access");
             let newMessage = await this.messageService.create(dto);
+            console.log(`[createMessage] SUCCESS: Created message id=${newMessage._id} in room=${dto._roomId}`);
             // let newMsg = await this.s3.getSignedMessage(newMessage);
             this.socket.io
                 .to(dto._roomId.toString())
                 .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(newMessage));
+            console.log(`[createMessage] Socket event emitted to room ${dto._roomId}`);
             if (!isSilent) await this.notificationService.singleChatNotification(peer.uId, newMessage);
             return newMessage;
         } else if (isGroup) {
+            console.log(`[createMessage] Creating GROUP message in room=${dto._roomId}`);
             let createdMessage = await this.messageService.create(dto);
+            console.log(`[createMessage] GROUP message created id=${createdMessage._id}`);
             await this._createStatusForGroupChat(dto._roomId, createdMessage._id);
             // let newMsg = await this.s3.getSignedMessage(createdMessage);
             this.socket.io
                 .to(dto._roomId.toString())
                 .emit(SocketEventsType.v1OnNewMessage, JSON.stringify(createdMessage));
+            console.log(`[createMessage] GROUP socket event emitted to room ${dto._roomId}`);
             if (!isSilent) {
                 this.notificationService
                     .groupChatNotification(createdMessage, rM.t)
@@ -206,6 +440,32 @@ export class MessageChannelService {
                     'You dont have access to delete this message',
                 );
             }
+
+            // Check if message is within 24 hours for "Delete from all" (86400000 milliseconds)
+            const messageCreatedAt = new Date(m.createdAt).getTime();
+            const now = Date.now();
+            const twentyFourHoursInMs = 86400000;
+            if (now - messageCreatedAt > twentyFourHoursInMs) {
+                throw new ForbiddenException("Messages can only be deleted from all within 24 hours of being sent");
+            }
+
+            try {
+                const msgAtt: any = (m as any)?.msgAtt;
+                const url = msgAtt?.url;
+                const thumbUrl = msgAtt?.thumbUrl;
+                const thumbImageUrl = msgAtt?.thumbImage?.url;
+                if (typeof url === 'string' && url) {
+                    await this.s3.deleteByUrl(url);
+                }
+                if (typeof thumbUrl === 'string' && thumbUrl) {
+                    await this.s3.deleteByUrl(thumbUrl);
+                }
+                if (typeof thumbImageUrl === 'string' && thumbImageUrl) {
+                    await this.s3.deleteByUrl(thumbImageUrl);
+                }
+            } catch (_) {
+            }
+
             let x: IMessage = await this.messageService.findByIdAndUpdate(dto.messageId, {
                 dltAt: new Date(),
             });
@@ -240,6 +500,119 @@ export class MessageChannelService {
         }
         const res = await this.messageService.findAllMessagesAggregation(newMongoObjId(myId), newMongoObjId(roomId), dto);
         return { docs: res };
+    }
+
+    async pinRoomMessage(dto: RoomIdAndMsgIdDto) {
+        const rM: IRoomMember = await this.middlewareService.isThereRoomMemberOrThrow(
+            dto.roomId,
+            dto.myUser._id,
+        );
+
+        const isGroup = rM.rT == RoomType.GroupChat;
+        if (isGroup) {
+            const member: IGroupMember | null = await this.groupMember.findOne({
+                rId: rM.rId,
+                uId: dto.myUser._id,
+            });
+            if (!member || (member.gR !== GroupRoleType.Admin && member.gR !== GroupRoleType.SuperAdmin)) {
+                throw new ForbiddenException("Only group admins can pin messages");
+            }
+        }
+
+        const msg = await this.messageService.findById(dto.messageId);
+        if (!msg) throw new BadRequestException("message not exists!");
+        if (msg.rId.toString() != dto.roomId) throw new BadRequestException("message not exists in this room!");
+
+        // Unpin any existing pinned message in this room
+        await this.messageService.updateMany(
+            {
+                rId: dto.roomId,
+                isPinned: true,
+            },
+            {
+                $set: {
+                    isPinned: false,
+                    pinnedAt: null,
+                    pinnedBy: null,
+                },
+            },
+        );
+
+        await this.messageService.findByIdAndUpdate(dto.messageId, {
+            isPinned: true,
+            pinnedAt: new Date(),
+            pinnedBy: dto.myUser._id,
+        });
+        const pinned = await this.messageService.getByIdOrFail(dto.messageId);
+
+        this.socket.io
+            .to(dto.roomId.toString())
+            .emit('chat_message_pinned', {
+                roomId: dto.roomId.toString(),
+                message: pinned,
+            });
+
+        return pinned;
+    }
+
+    async unpinRoomMessage(dto: RoomIdAndMsgIdDto) {
+        const rM: IRoomMember = await this.middlewareService.isThereRoomMemberOrThrow(
+            dto.roomId,
+            dto.myUser._id,
+        );
+
+        const isGroup = rM.rT == RoomType.GroupChat;
+        if (isGroup) {
+            const member: IGroupMember | null = await this.groupMember.findOne({
+                rId: rM.rId,
+                uId: dto.myUser._id,
+            });
+            if (!member || (member.gR !== GroupRoleType.Admin && member.gR !== GroupRoleType.SuperAdmin)) {
+                throw new ForbiddenException("Only group admins can unpin messages");
+            }
+        }
+
+        const msg = await this.messageService.findById(dto.messageId);
+        if (!msg) throw new BadRequestException("message not exists!");
+        if (msg.rId.toString() != dto.roomId) throw new BadRequestException("message not exists in this room!");
+
+        await this.messageService.findByIdAndUpdate(dto.messageId, {
+            isPinned: false,
+            pinnedAt: null,
+            pinnedBy: null,
+        });
+
+        this.socket.io
+            .to(dto.roomId.toString())
+            .emit('chat_message_unpinned', {
+                roomId: dto.roomId.toString(),
+                messageId: dto.messageId.toString(),
+            });
+
+        return "Done";
+    }
+
+    async getPinnedRoomMessage(myId: string, roomId: string) {
+        const isThere = await this.middlewareService.isThereRoomMember(roomId, myId);
+        if (!isThere) {
+            // Allow read-only access for public channels (groups marked as channel)
+            try {
+                const settings = await this.groupSetting.findById(roomId);
+                const isChannel = settings && (settings as any)['extraData'] && (settings as any)['extraData']['isChannel'] === true;
+                if (!isChannel) {
+                    return null;
+                }
+            } catch (e) {
+                return null;
+            }
+        }
+
+        const pinned = await this.messageService.findOne({
+            rId: roomId,
+            isPinned: true,
+            dltAt: null,
+        });
+        return pinned;
     }
 
 //////////////////////////////////////////////////////////////////////////////////////utils//////////////////////////////////////////
@@ -540,6 +913,14 @@ export class MessageChannelService {
         // Only text messages can be edited
         if (msg.mT !== MessageType.Text) {
             throw new BadRequestException("Only text messages can be edited");
+        }
+
+        // Check if message is within 1 hour edit window (3600000 milliseconds)
+        const messageCreatedAt = new Date(msg.createdAt).getTime();
+        const now = Date.now();
+        const oneHourInMs = 3600000;
+        if (now - messageCreatedAt > oneHourInMs) {
+            throw new ForbiddenException("Messages can only be edited within 1 hour of being sent");
         }
 
         // Update the message content and set isEdited to true

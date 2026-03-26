@@ -91,10 +91,10 @@ export class UserFilesService {
         for (const message of allFiles) {
             const msgAtt = message.msgAtt as any;
             if (msgAtt && msgAtt.url) {
-                // The url contains the full path: "userId/filename"
-                const filePath = path.join(root.path, "public", "media", msgAtt.url);
-                console.log(`Checking file existence: ${msgAtt.url} -> ${filePath}`);
-                if (fs.existsSync(filePath)) {
+                const url = msgAtt.url.toString();
+                const localPath = this._tryGetLocalMediaPath(url);
+
+                if (!localPath) {
                     existingFiles.push({
                         id: message._id,
                         messageId: message._id,
@@ -105,15 +105,36 @@ export class UserFilesService {
                         fileName: msgAtt.name,
                         fileSize: msgAtt.fileSize || 0,
                         fileHash: msgAtt.fileHash,
-                        extension: this.getExtensionFromUrl(msgAtt.url),
+                        extension: this.getExtensionFromUrl(url),
                         mimeType: msgAtt.mimeType,
-                        networkUrl: msgAtt.url,
+                        networkUrl: url,
+                        createdAt: message.createdAt,
+                        fileType: this.getFileTypeFromMessageType(message.mT)
+                    });
+                    continue;
+                }
+
+                console.log(`Checking file existence: ${url} -> ${localPath}`);
+                if (fs.existsSync(localPath)) {
+                    existingFiles.push({
+                        id: message._id,
+                        messageId: message._id,
+                        senderId: message.sId,
+                        senderName: message.sName,
+                        roomId: message.rId,
+                        messageType: message.mT,
+                        fileName: msgAtt.name,
+                        fileSize: msgAtt.fileSize || 0,
+                        fileHash: msgAtt.fileHash,
+                        extension: this.getExtensionFromUrl(url),
+                        mimeType: msgAtt.mimeType,
+                        networkUrl: url,
                         createdAt: message.createdAt,
                         fileType: this.getFileTypeFromMessageType(message.mT)
                     });
                 } else {
                     // File doesn't exist, mark message as having missing attachment
-                    console.log(`Missing file detected: ${msgAtt.url} for message ${message._id}`);
+                    console.log(`Missing file detected: ${url} for message ${message._id}`);
                 }
             }
         }
@@ -181,8 +202,9 @@ export class UserFilesService {
         for (const message of messages) {
             const msgAtt = message.msgAtt as any;
             if (msgAtt && msgAtt.url) {
-                const filePath = path.join(root.path, "public", "media", msgAtt.url);
-                if (!fs.existsSync(filePath)) {
+                const url = msgAtt.url.toString();
+                const localPath = this._tryGetLocalMediaPath(url);
+                if (localPath && !fs.existsSync(localPath)) {
                     // File doesn't exist, remove attachment but keep message
                     await this.messageModel.findByIdAndUpdate(message._id, {
                         msgAtt: null,
@@ -190,7 +212,7 @@ export class UserFilesService {
                         isEdited: true
                     });
                     cleanedCount++;
-                    console.log(`Cleaned orphaned message: ${message._id} with missing file: ${msgAtt.url}`);
+                    console.log(`Cleaned orphaned message: ${message._id} with missing file: ${url}`);
                 }
             }
         }
@@ -212,23 +234,62 @@ export class UserFilesService {
     }
 
     private getExtensionFromUrl(url: string): string {
-        const parts = url.split('.');
-        return parts.length > 1 ? `.${parts[parts.length - 1]}` : '';
+        try {
+            const u = url.startsWith('http') ? new URL(url) : null;
+            const pathname = (u ? u.pathname : url).split('?')[0];
+            const file = pathname.split('/').pop() || '';
+            const parts = file.split('.');
+            return parts.length > 1 ? `.${parts[parts.length - 1]}` : '';
+        } catch (_) {
+            const clean = url.split('?')[0];
+            const parts = clean.split('.');
+            return parts.length > 1 ? `.${parts[parts.length - 1]}` : '';
+        }
     }
 
     private async deletePhysicalFile(fileUrl: string) {
         try {
-            // fileUrl is like "6869c00fb29d342c627d6f94/media600-1fb422bc-756d-42de-9d6f-d15c0a7c49e4.jpg"
-            const filePath = path.join(root.path, "public", "media", fileUrl);
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-                console.log(`Successfully deleted file: ${fileUrl}`);
-            } else {
-                console.log(`File not found for deletion: ${fileUrl}`);
-            }
+            await this.fileUploaderService.deleteByUrl(fileUrl);
         } catch (error) {
             console.error(`Error deleting physical file ${fileUrl}: ${error.message}`);
-            // Don't throw error as database cleanup is more important
+        }
+    }
+
+    private _tryGetLocalMediaPath(url: string): string | null {
+        try {
+            if (!url) return null;
+            // Remote (Cloudinary, etc.)
+            if (/^https?:\/\//i.test(url)) {
+                const u = new URL(url);
+                // If it's pointing to our own /media or /v-public, keep local support
+                const pathname = u.pathname || '';
+                if (pathname.startsWith('/media/')) {
+                    const key = pathname.replace('/media/', '');
+                    return path.join(root.path, 'public', 'media', key);
+                }
+                if (pathname.startsWith('/v-public/')) {
+                    const key = pathname.replace('/v-public/', '');
+                    return path.join(root.path, 'public', 'v-public', key);
+                }
+                return null;
+            }
+
+            // Local
+            if (url.startsWith('/media/')) {
+                const key = url.replace('/media/', '');
+                return path.join(root.path, 'public', 'media', key);
+            }
+            if (url.startsWith('/v-public/')) {
+                const key = url.replace('/v-public/', '');
+                return path.join(root.path, 'public', 'v-public', key);
+            }
+            // Legacy: stored as key like "<userId>/<file>"
+            if (!url.startsWith('/')) {
+                return path.join(root.path, 'public', 'media', url);
+            }
+            return null;
+        } catch (_) {
+            return null;
         }
     }
 

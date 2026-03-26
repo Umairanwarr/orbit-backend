@@ -5,6 +5,7 @@
  */
 
 import { Module } from "@nestjs/common";
+import { EventEmitterModule } from "@nestjs/event-emitter";
 import { ProfileService } from "./profile.service";
 import { ProfileController } from "./profile.controller";
 import { UserModule } from "../user_modules/user/user.module";
@@ -28,6 +29,13 @@ import { ChannelModule } from "../../chat/channel/channel.module";
 import { ProfileNotificationEmitter } from "./profile_notification_emitter";
 import { MongooseModule } from "@nestjs/mongoose";
 import { UserSchema } from "../user_modules/user/entities/user.entity";
+import { VerificationModule } from "../verification/verification.module";
+import { AdsModule } from "../ads/ads.module";
+import { AdSubmissionSchema } from "../ads/schemas/ad_submission.schema";
+import { PesapalModule } from "../payments/pesapal/pesapal.module";
+import { EmergencyContactModule } from "../user_modules/emergency_contact/emergency_contact.module";
+import { WithdrawRequestsModule } from "../wallet/withdraw_requests.module";
+import { UserFollowModule } from "../user_modules/user_follow/user_follow.module";
 
 @Module({
   controllers: [ProfileController],
@@ -51,7 +59,17 @@ import { UserSchema } from "../user_modules/user/entities/user.entity";
     NotificationEmitterModule,
     ChatRequestModule,
     ChannelModule,
-    MongooseModule.forFeature([{ name: "users", schema: UserSchema }]),
+    VerificationModule,
+    AdsModule,
+    PesapalModule,
+    EmergencyContactModule,
+    UserFollowModule,
+    MongooseModule.forFeature([
+      { name: "users", schema: UserSchema },
+      { name: 'AdSubmission', schema: AdSubmissionSchema },
+    ]),
+    EventEmitterModule,
+    WithdrawRequestsModule,
   ],
 })
-export class ProfileModule {}
+export class ProfileModule { }

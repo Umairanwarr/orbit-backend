@@ -34,10 +34,13 @@ import VerifyEmailDto from "./dto/verify.email.dto";
 import { V1Controller } from "../../core/common/v1-controller.decorator";
 import { SocialLoginDto } from "./dto/social-login.dto";
 import { RegisterMethod } from "src/core/utils/enums";
+import { RefreshTokenDto } from "./dto/refresh_token.dto";
+import { TwoFactorCodeDto } from "./dto/two_factor_digit.dto";
+import { TwoFactorLoginDto } from "./dto/two_factor_login.dto";
 
 @V1Controller("auth")
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   // @Get("/requests")
   // async list(@Query() q: AdminListQueryDto) {
@@ -126,20 +129,60 @@ export class AuthController {
     return this.authService.twitterLogin(dto);
   }
 
-  @Post("/auth0")
+  // New endpoints
+
+  @Post("/linkedin")
+  @HttpCode(200)
+  async linkedinLogin(
+    @Body() dto: SocialLoginDto,
+    @IpAddress() ipAddress: any
+  ) {
+    dto.ip = ipAddress;
+    dto.registerMethod = RegisterMethod.linkedin;
+    return this.authService.linkedinLogin(dto);
+  }
+
+  @Post("/microsoft")
+  @HttpCode(200)
+  async microsoftLogin(
+    @Body() dto: SocialLoginDto,
+    @IpAddress() ipAddress: any
+  ) {
+    dto.ip = ipAddress;
+    dto.registerMethod = RegisterMethod.microsoft;
+    return this.authService.microsoftLogin(dto);
+  }
+
+  @Post("/reddit")
+  @HttpCode(200)
+  async redditLogin(
+    @Body() dto: SocialLoginDto,
+    @IpAddress() ipAddress: any
+  ) {
+    dto.ip = ipAddress;
+    dto.registerMethod = RegisterMethod.reddit;
+    return this.authService.redditLogin(dto);
+  }
+
+  @Post("/instagram")
+  @HttpCode(200)
+  async instagramLogin(
+    @Body() dto: SocialLoginDto,
+    @IpAddress() ipAddress: any
+  ) {
+    dto.ip = ipAddress;
+    dto.registerMethod = RegisterMethod.instagram;
+    return this.authService.instagramLogin(dto);
+  }
+
+  @Post('/auth0')
   @HttpCode(200)
   async auth0Login(
     @Body() dto: SocialLoginDto,
-    @IpAddress() ipAddress: any,
-    @IsDevelopment() isDev: boolean
+    @IpAddress() ipAddress: any
   ) {
     dto.ip = ipAddress;
-    try {
-      dto.deviceInfo = jsonDecoder(dto.deviceInfo);
-    } catch (err) {
-      // ignore
-    }
-    return resOK(await this.authService.auth0Login(dto));
+    return this.authService.auth0Login(dto);
   }
 
   @Post("/send-otp-admin-reset")
@@ -165,6 +208,37 @@ export class AuthController {
       await this.authService.verifyOtpAdminReset(email, otp, newPassword)
     );
   }
+  // generate two factor authentication secret and qr code
+  @UseGuards(VerifiedAuthGuard)
+  @Get("/2fa/generate")
+  async generateTwoFactorAuthenticationSecret(@Req() req: any) {
+    const user = req.user;
+    return resOK(await this.authService.generateTwoFactorSecret(user));
+  }
+
+  // enable two factor authentication
+  @UseGuards(VerifiedAuthGuard)
+  @Post("/2fa/turn-on")
+  async turnOnTwoFactorAuthentication(@Req() req: any, @Body() body: TwoFactorCodeDto) {
+    const user = req.user;
+    return resOK(await this.authService.turnOnTwoFactorAuth(user, body));
+  }
+
+  // turn off two factor authentication
+  @UseGuards(VerifiedAuthGuard)
+  @Post("/2fa/turn-off")
+  async turnOffTwoFactorAuthentication(@Req() req: any) {
+    const user = req.user;
+    return resOK(await this.authService.turnOffTwoFactorAuth(user));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Post("/2fa/authenticate")
+  async authenticateTwoFactorAuthentication(@Req() req: any, @Body() body: TwoFactorLoginDto) {
+    const user = req.user;
+    return this.authService.authenticateTwoFactor(user._id, body);
+  }
+
 
   @Post("/login")
   @HttpCode(200)
@@ -202,6 +276,11 @@ export class AuthController {
     return resOK(await this.authService.register(dto));
   }
 
+  @Post('/refresh')
+  async refreshAccessToken(@Body() dto: RefreshTokenDto) {
+    return resOK(await this.authService.refreshAccessToken(dto));
+  }
+
   // @Post("/send-otp-register")
   // @UseInterceptors(imageFileInterceptor)
   // async sendRegisterOtp(
@@ -233,6 +312,40 @@ export class AuthController {
       throw new BadRequestException("Email is required");
     }
     return resOK(await this.authService.sendOtpRegister(email, isDev));
+  }
+
+  @Post('/send-link-register')
+  async sendLinkRegister(
+    @Body('email') email: string,
+    @Body('fullName') fullName: string,
+    @Body('password') password: string,
+    @Body('profession') profession: string,
+    @Body('method') method: RegisterMethod,
+    @IsDevelopment() isDev: boolean,
+  ) {
+    if (!email || !fullName || !password) {
+      throw new BadRequestException('Email/phone, full name, and password are required');
+    }
+    return resOK(
+      await this.authService.sendLinkRegister(email, isDev, {
+        fullName,
+        password,
+        profession,
+        method,
+      }),
+    );
+  }
+
+  @Post('/verify-link-register')
+  @HttpCode(200)
+  async verifyLinkRegister(
+    @Body('email') email: string,
+    @Body('token') token: string,
+  ) {
+    if (!email || !token) {
+      throw new BadRequestException('Email/phone and token are required');
+    }
+    return resOK(await this.authService.verifyLinkRegister(email, token));
   }
 
   @Post("/verify-otp-register")

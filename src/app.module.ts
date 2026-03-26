@@ -1,68 +1,85 @@
 
 
-import {Module} from "@nestjs/common";
-import {AppController} from "./app.controller";
-import {UserModule} from "./api/user_modules/user/user.module";
-import {InjectConnection, MongooseModule} from "@nestjs/mongoose";
-import {ThrottlerGuard, ThrottlerModule} from "@nestjs/throttler";
-import {ConfigModule, ConfigService} from "@nestjs/config";
-import {EventEmitterModule} from "@nestjs/event-emitter";
-import {UserDeviceModule} from "./api/user_modules/user_device/user_device.module";
-import path, {join} from "path";
+import { Module } from "@nestjs/common";
+import { AppController } from "./app.controller";
+import { MediaProxyController } from './common/media_proxy.controller';
+import { UserModule } from "./api/user_modules/user/user.module";
+import { InjectConnection, MongooseModule } from "@nestjs/mongoose";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { ConfigModule, ConfigService } from "@nestjs/config";
+import { EventEmitterModule } from "@nestjs/event-emitter";
+import { UserDeviceModule } from "./api/user_modules/user_device/user_device.module";
+import path, { join } from "path";
 import root from "app-root-path";
-import {APP_FILTER, APP_GUARD} from "@nestjs/core";
-import {AllExceptionFilter} from "./core/exception_filter/all-exception.filter";
-import {CountriesModule} from "./api/countries/countries.module";
-import {UserCountryModule} from "./api/user_modules/user_country/user_country.module";
-import {VersionsModule} from "./api/versions/versions.module";
-import {AppConfigModule} from "./api/app_config/app_config.module";
-import {AuthModule} from "./api/auth/auth.module";
-import {FileUploaderModule} from "./common/file_uploader/file_uploader.module";
-import {Connection} from "mongoose";
+import { APP_FILTER, APP_GUARD } from "@nestjs/core";
+import { AllExceptionFilter } from "./core/exception_filter/all-exception.filter";
+import { CountriesModule } from "./api/countries/countries.module";
+import { UserCountryModule } from "./api/user_modules/user_country/user_country.module";
+import { VersionsModule } from "./api/versions/versions.module";
+import { AppConfigModule } from "./api/app_config/app_config.module";
+import { AuthModule } from "./api/auth/auth.module";
+import { FileUploaderModule } from "./common/file_uploader/file_uploader.module";
+import { Connection } from "mongoose";
 import fs from "fs";
-import {ICountry} from "./api/countries/countries.entity";
-import {IAppConfig} from "./api/app_config/entities/app_config.entity";
-import {ProfileModule} from "./api/profile/profile.module";
-import {UserBanModule} from "./api/user_modules/user_ban/user_ban.module";
-import {BanModule} from "./api/ban/ban.module";
-import {UserVersionModule} from "./api/user_modules/user_version/user_version.module";
-import {AdminNotificationModule} from "./api/admin_notification/admin_notification.module";
-import {AdminPanelModule} from "./api/admin_panel/admin_panel.module";
-import {ReportSystemModule} from "./api/report_system/report_system.module";
-import {NotificationEmitterModule} from "./common/notification_emitter/notification_emitter.module";
-import {SocketIoModule} from './chat/socket_io/socket_io.module';
-import {GroupMessageStatusModule} from './chat/group_message_status/group_message_status.module';
-import {MessageModule} from './chat/message/message.module';
-import {GroupSettingsModule} from './chat/group_settings/group_settings.module';
-import {GroupMemberModule} from './chat/group_member/group_member.module';
-import {BroadcastSettingsModule} from './chat/broadcast_settings/broadcast_settings.module';
-import {BroadcastMemberModule} from './chat/broadcast_member/broadcast_member.module';
-import {OrderRoomSettingsModule} from './chat/order_room_settings/order_room_settings.module';
-import {SingleRoomSettingsModule} from './chat/single_room_settings/single_room_settings.module';
-import {RoomMemberModule} from './chat/room_member/room_member.module';
-import {RoomMiddlewareModule} from './chat/room_middleware/room_middleware.module';
+import { ICountry } from "./api/countries/countries.entity";
+import { IAppConfig } from "./api/app_config/entities/app_config.entity";
+import { ProfileModule } from "./api/profile/profile.module";
+import { UserBanModule } from "./api/user_modules/user_ban/user_ban.module";
+import { BanModule } from "./api/ban/ban.module";
+import { UserVersionModule } from "./api/user_modules/user_version/user_version.module";
+import { AdminNotificationModule } from "./api/admin_notification/admin_notification.module";
+import { AdminPanelModule } from "./api/admin_panel/admin_panel.module";
+import { ReportSystemModule } from "./api/report_system/report_system.module";
+import { NotificationEmitterModule } from "./common/notification_emitter/notification_emitter.module";
+import { SocketIoModule } from './chat/socket_io/socket_io.module';
+import { GroupMessageStatusModule } from './chat/group_message_status/group_message_status.module';
+import { MessageModule } from './chat/message/message.module';
+import { GroupSettingsModule } from './chat/group_settings/group_settings.module';
+import { GroupMemberModule } from './chat/group_member/group_member.module';
+import { BroadcastSettingsModule } from './chat/broadcast_settings/broadcast_settings.module';
+import { BroadcastMemberModule } from './chat/broadcast_member/broadcast_member.module';
+import { OrderRoomSettingsModule } from './chat/order_room_settings/order_room_settings.module';
+import { SingleRoomSettingsModule } from './chat/single_room_settings/single_room_settings.module';
+import { RoomMemberModule } from './chat/room_member/room_member.module';
+import { RoomMiddlewareModule } from './chat/room_middleware/room_middleware.module';
 
-import {ChannelModule} from './chat/channel/channel.module';
-import {CallMemberModule} from "./chat/call_modules/call_member/call_member.module";
-import {CallModule} from "./chat/call_modules/call/call.module";
-import {ScheduleModule} from "@nestjs/schedule";
-import {MailEmitterModule} from "./api/mail/mail.emitter.module";
-import {AgoraModule} from './chat/agora/agora.module';
-import {StoryModule} from './api/stories/story/story.module';
-import {UserStoryModule} from './api/stories/user_story/user_story.module';
-import {IUser} from "./api/user_modules/user/entities/user.entity";
-import {DbMigrateModule} from './common/db/db_migrate/db_migrate.module';
-import {version} from '../package.json';
-import {FirstRunModule} from './common/db/first_run/first_run.module';
+import { ChannelModule } from './chat/channel/channel.module';
+import { CallMemberModule } from "./chat/call_modules/call_member/call_member.module";
+import { CallModule } from "./chat/call_modules/call/call.module";
+import { ScheduleModule } from "@nestjs/schedule";
+import { MailEmitterModule } from "./api/mail/mail.emitter.module";
+import { AgoraModule } from './chat/agora/agora.module';
+import { StoryModule } from './api/stories/story/story.module';
+import { UserStoryModule } from './api/stories/user_story/user_story.module';
+import { IUser } from "./api/user_modules/user/entities/user.entity";
+import { DbMigrateModule } from './common/db/db_migrate/db_migrate.module';
+import { version } from '../package.json';
+import { FirstRunModule } from './common/db/first_run/first_run.module';
 import { ChatRequestModule } from './chat/chat_request/chat_request.module';
-import {StoryAttachmentModule} from "./api/stories/story_attachment/story_attachment.module";
-import {MemoryModule} from "./api/stories/memory/memory.module";
-import {CallHistoryModule} from "./chat/call_modules/call_history/call_history.module";
-import {UserFilesModule} from "./api/user_modules/user_files/user_files.module";
-import {LoyaltyPointsModule} from "./api/user_modules/loyalty_points/loyalty_points.module";
-import {GiftModule} from "./api/gifts/gift.module";
-import {LiveStreamModule} from "./api/live_stream/live_stream.module";
-
+import { StoryAttachmentModule } from "./api/stories/story_attachment/story_attachment.module";
+import { CallHistoryModule } from "./chat/call_modules/call_history/call_history.module";
+import { UserFilesModule } from "./api/user_modules/user_files/user_files.module";
+import { LoyaltyPointsModule } from "./api/user_modules/loyalty_points/loyalty_points.module";
+import { GiftModule } from "./api/gifts/gift.module";
+import { LiveStreamModule } from "./api/live_stream/live_stream.module";
+import { PesapalModule } from "./api/payments/pesapal/pesapal.module";
+import { MpesaModule } from "./api/payments/mpesa/mpesa.module";
+import { VerificationModule } from "./api/verification/verification.module";
+import { AdsModule } from "./api/ads/ads.module";
+import { DriverApplicationsModule } from './api/drivers/driver_applications.module';
+import { DriverPresenceModule } from './api/drivers/driver_presence.module';
+import { SellerApplicationsModule } from './api/sellers/seller_applications.module';
+import { RidesModule } from './api/rides/rides.module';
+import { ScheduledMessageModule } from './chat/scheduled_message/scheduled_message.module';
+import { CommunityModule } from './chat/community/community.module';
+import { EmergencyContactModule } from './api/user_modules/emergency_contact/emergency_contact.module';
+import { JobsModule } from './api/jobs/jobs.module';
+import { WithdrawRequestsModule } from './api/wallet/withdraw_requests.module';
+import { MusicModule } from './api/music/music.module';
+import { ArticlesModule } from './api/articles/articles.module';
+import { MarketplaceListingsModule } from './api/marketplace/marketplace_listings.module';
+// PaystackModule removed – replaced by PesapalModule
+import { UserFollowModule } from "./api/user_modules/user_follow/user_follow.module";
 
 @Module({
     imports: [
@@ -99,6 +116,7 @@ import {LiveStreamModule} from "./api/live_stream/live_stream.module";
         FileUploaderModule,
         ProfileModule,
         UserBanModule,
+        UserFollowModule,
         BanModule,
         UserVersionModule,
         AdminNotificationModule,
@@ -126,16 +144,31 @@ import {LiveStreamModule} from "./api/live_stream/live_stream.module";
         DbMigrateModule,
         ChatRequestModule,
         StoryAttachmentModule,
-        MemoryModule,
         CallHistoryModule,
         UserFilesModule,
         LoyaltyPointsModule,
         GiftModule,
         LiveStreamModule,
+        PesapalModule,
+        MpesaModule,
+        VerificationModule,
+        AdsModule,
+        DriverApplicationsModule,
+        DriverPresenceModule,
+        SellerApplicationsModule,
+        RidesModule,
+        ScheduledMessageModule,
+        CommunityModule,
+        EmergencyContactModule,
+        JobsModule,
+        WithdrawRequestsModule,
+        MusicModule,
+        ArticlesModule,
+        MarketplaceListingsModule,
 
 
     ],
-    controllers: [AppController],
+    controllers: [AppController, MediaProxyController],
     providers: [
         {
             provide: APP_FILTER,

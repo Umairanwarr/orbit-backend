@@ -10,6 +10,7 @@ import { AppModule } from "./app.module";
 import path, { join } from "path";
 import * as admin from "firebase-admin";
 import root from "app-root-path";
+import { setDefaultResultOrder } from "dns";
 
 const xss = require("xss-clean");
 const requestIp = require("request-ip");
@@ -28,6 +29,7 @@ import { RedisIoAdapter } from "./chat/socket_io/redis-io.adapter";
  *
  * @return {Promise<void>} A promise that resolves once the application is successfully initialized and started.
  */
+setDefaultResultOrder('ipv4first');
 async function bootstrap() {
   console.log(process.env.NODE_ENV)
   if (process.env.isFirebaseFcmEnabled == "true") {
@@ -47,15 +49,68 @@ async function bootstrap() {
     logger: ["error", "warn"]
   });
   let isDev = process.env.NODE_ENV == "development";
+  // Globally filter noisy console logs (non-payment noise)
+  try {
+    const originalLog = console.log.bind(console);
+    const LOG_FILTER_PATTERNS = [
+      /^AuthService: getVerifiedUser/,
+      /^UserService: findByIdForAuth/,
+      /^=== STORY FINDALL DEBUG ===/,
+      /^\[Sched]/,
+      /^\[SchedCreate]/,
+      /^\[SchedTimer]/,
+    ];
+    console.log = (...args: any[]) => {
+      try {
+        const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+        if (LOG_FILTER_PATTERNS.some((r) => r.test(msg))) return;
+      } catch {}
+      return originalLog(...args);
+    };
+  } catch {}
+  // Limit logs to M-Pesa payments and recording purchase/access endpoints
   app.use(morgan("tiny", {
     skip: function(req, res) {
-      if (isDev) {
-        return false;
+      try {
+        const url = req?.url || "";
+        const isPayment = /\/api\/v1\/payments\/(mpesa|paystack)\//.test(url);
+        const isRecordingPurchase = /\/api\/v1\/live-stream\/recordings\/.+(purchase|access|playback)/.test(url);
+        const isGiftPurchase = /\/api\/v1\/live-stream\/[0-9a-fA-F]{24}\/gift\/[0-9a-fA-F]{24}\/purchase/.test(url);
+        const isGiftStatus = /\/api\/v1\/live-stream\/[0-9a-fA-F]{24}\/gift\/[0-9a-fA-F]{24}\/purchase\/status/.test(url);
+        const shouldLog = isPayment || isRecordingPurchase || isGiftPurchase || isGiftStatus;
+        // Only log purchase-related traffic; skip everything else
+        return !shouldLog;
+      } catch {
+        // Fallback: in case of error, skip non-errors in prod, log all in dev
+        if (isDev) return false;
+        return res.statusCode < 400;
       }
-      return res.statusCode < 400;
     }
   }));
-  app.use(helmet({crossOriginResourcePolicy: false,}));
+  // Configure Helmet with a CSP that allows our static page and cross-origin media playback
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: false,
+      crossOriginEmbedderPolicy: false,
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          // Only this origin by default
+          "default-src": ["'self'"],
+          // Allow inline scripts for verify-email.html
+          "script-src": ["'self'", "'unsafe-inline'"],
+          // Our page uses inline <style> in recording.html
+          "style-src": ["'self'", "'unsafe-inline'"],
+          // Thumbnails/posters can be on OSS or elsewhere
+          "img-src": ["'self'", "data:", "blob:", "*"] as any,
+          // Video media ultimately streams from OSS; allow it
+          "media-src": ["'self'", "data:", "blob:", "*"] as any,
+          // Permit HLS segment/XHR if needed in future
+          "connect-src": ["'self'", "*"] as any,
+        },
+      },
+    })
+  );
 
   // Add CORS headers for static assets
   app.use((req, res, next) => {
@@ -78,14 +133,29 @@ async function bootstrap() {
       console.log('Skipping body parser for file upload:', req.url);
       return next();
     }
-    bodyParser.urlencoded({ extended: false, limit: '100mb' })(req, res, next);
+    bodyParser.urlencoded({
+      extended: false,
+      limit: '100mb',
+      verify: (req: any, _res: any, buf: Buffer) => {
+        try {
+          req.rawBody = buf;
+        } catch {}
+      },
+    })(req, res, next);
   });
 
   app.use((req, res, next) => {
     if (req.url.includes('/upload') && req.headers['content-type']?.includes('multipart/form-data')) {
       return next();
     }
-    bodyParser.json({ limit: '100mb' })(req, res, next);
+    bodyParser.json({
+      limit: '100mb',
+      verify: (req: any, _res: any, buf: Buffer) => {
+        try {
+          req.rawBody = buf;
+        } catch {}
+      },
+    })(req, res, next);
   });
   app.useGlobalPipes(
     new ValidationPipe({
@@ -103,8 +173,10 @@ async function bootstrap() {
   const port = process.env.PORT ?? 80;
 
   // Configure static assets with explicit URL prefixes and CORS headers
-  // 1) Serve the whole /public directory at root for HTML files (home.html, privacy-policy.html, etc.)
+  // 1) Serve the whole /public directory at root for HTML files (home.html, privacy-policy.html, reset-password.html, etc.)
+  // Enable extensionless HTML so /reset-password resolves to reset-password.html
   app.useStaticAssets(join(root.path, 'public'), {
+    extensions: ['html'],
     setHeaders: (res, _path, _stat) => {
       res.set('Access-Control-Allow-Origin', '*');
       res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
@@ -125,6 +197,16 @@ async function bootstrap() {
   // 3) Serve media under /media prefix (if used)
   app.useStaticAssets(join(root.path, 'public', 'media'), {
     prefix: '/media',
+    setHeaders: (res, _path, _stat) => {
+      res.set('Access-Control-Allow-Origin', '*');
+      res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With, admin-key');
+    },
+  });
+
+  // 4) Serve live recordings under /recordings prefix
+  app.useStaticAssets(join(root.path, 'public', 'live_recordings'), {
+    prefix: '/recordings',
     setHeaders: (res, _path, _stat) => {
       res.set('Access-Control-Allow-Origin', '*');
       res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');

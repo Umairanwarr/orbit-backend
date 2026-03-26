@@ -8,7 +8,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { PaginationParameters } from "mongoose-paginate-v2";
 import { remove } from "remove-accents";
 import { UserService } from "../../user_modules/user/user.service";
-import { RegisterStatus } from "../../../core/utils/enums";
+import { RegisterStatus, UserRole } from "../../../core/utils/enums";
 import { SocketIoService } from "../../../chat/socket_io/socket_io.service";
 import { UserDeviceService } from "../../user_modules/user_device/user_device.service";
 import { UserSearchFilterDto } from "src/api/profile/dto/user-search-filter.dto";
@@ -26,7 +26,8 @@ export class UserAdminService {
   
 
   async getUsers(dto: Object) {
-    let filter: object = {};
+    let filter: any = {};
+    const q: any = dto as any;
     let paginationParameters = new PaginationParameters({
       query: {
         limit: 30,
@@ -45,7 +46,7 @@ export class UserAdminService {
     ) {
       paginationParameters[1].limit = 100;
     }
-    let fullName = dto["fullName"];
+    let fullName = q["fullName"];
     if (fullName) {
       filter = {
         ...filter,
@@ -55,6 +56,45 @@ export class UserAdminService {
         },
       };
     }
+
+    // Filter by single role or roles array
+    const role = q["role"]; // e.g., 'driver'
+    const roles = q["roles"]; // e.g., ['driver', 'moderator'] or 'driver'
+    if (role) {
+      filter = {
+        ...filter,
+        roles: { $in: [role] },
+      };
+    }
+    if (roles) {
+      const arr = Array.isArray(roles) ? roles : [roles];
+      filter = {
+        ...filter,
+        roles: { $in: arr },
+      };
+    }
+
+    // Optional: filter by registerStatus if provided (accepted | pending | notAccepted)
+    const registerStatus = q["registerStatus"];
+    if (registerStatus) {
+      filter = {
+        ...filter,
+        registerStatus,
+      };
+    }
+
+    const verified = q["verified"];
+    if (typeof verified !== "undefined") {
+      const isVerified =
+        typeof verified === "string" ? verified === "true" : !!verified;
+      if (isVerified) {
+        filter = {
+          ...filter,
+          roles: { $in: [UserRole.HasBadge] },
+        };
+      }
+    }
+
     paginationParameters[0] = filter;
     return await this.userService.fullPaginateModel(paginationParameters);
   }

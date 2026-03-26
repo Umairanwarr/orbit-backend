@@ -87,6 +87,7 @@ export class MessageService {
                 $match: {
                     rId: roomId,
                     dF: {$ne: myId},
+                    dltAt: null,
                     ...dto.getFilter()
                 }
             },

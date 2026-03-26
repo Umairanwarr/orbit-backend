@@ -82,6 +82,41 @@ export const RoomMemberSchema: Schema = new Schema({
      
 
 });
+// Transform to ensure img URLs are always relative paths
+RoomMemberSchema.set('toJSON', {
+    transform: function(doc, ret) {
+        if (ret.img) {
+            console.log(`RoomMember toJSON transform - Original img: ${ret.img}`);
+            if (ret.img.startsWith('http')) {
+                // Extract the path part from full URL
+                const url = new URL(ret.img);
+                ret.img = url.pathname;
+                console.log(`RoomMember toJSON transform - Converted to: ${ret.img}`);
+            } else {
+                console.log(`RoomMember toJSON transform - Already relative: ${ret.img}`);
+            }
+        }
+        return ret;
+    }
+});
+
+RoomMemberSchema.set('toObject', {
+    transform: function(doc, ret) {
+        if (ret.img) {
+            console.log(`RoomMember toObject transform - Original img: ${ret.img}`);
+            if (ret.img.startsWith('http')) {
+                // Extract the path part from full URL
+                const url = new URL(ret.img);
+                ret.img = url.pathname;
+                console.log(`RoomMember toObject transform - Converted to: ${ret.img}`);
+            } else {
+                console.log(`RoomMember toObject transform - Already relative: ${ret.img}`);
+            }
+        }
+        return ret;
+    }
+});
+
 RoomMemberSchema.index({rId: 1, uId: 1}, {unique: true})
 RoomMemberSchema.plugin(aggregatePaginate);
 RoomMemberSchema.index({rId:1});

@@ -13,6 +13,8 @@ export enum UserType {
 export enum MailType {
   VerifyEmail = "verifyEmail",
   ResetPassword = "resetPassword",
+  ReportUser = "reportUser",
+  TwoFactorAuth = "twoFactorAuth",
 }
 
 export enum VPushProvider {
@@ -34,6 +36,8 @@ export enum UserRole {
   Admin = "admin",
   Moderator = "moderator",
   HasBadge = "hasBadge",
+  Driver = "driver",
+  Seller = "seller",
 }
 
 export enum AccessTokenType {
@@ -90,6 +94,8 @@ export enum RegisterMethod {
   microsoft = "microsoft",
   yahoo = "yahoo",
   snapchat = "snapchat",
+  reddit = "reddit",
+  instagram = "instagram",
 }
 
 export enum RegisterStatus {
@@ -187,6 +193,10 @@ export enum SocketEventsType {
   v1OnException = "v1OnException",
   v1OnEnterChatRoom = "v1OnEnterChatRoom",
   v1OnStoryDeleted = "v1OnStoryDeleted",
+  // Live location events
+  v1OnLiveLocationStarted = "v1OnLiveLocationStarted",
+  v1OnLiveLocationUpdate = "v1OnLiveLocationUpdate",
+  v1OnLiveLocationStopped = "v1OnLiveLocationStopped",
   //call events
   v1OnCallAccepted = "v1OnCallAccepted",
   v1OnCallEnded = "v1OnCallEnded",
@@ -196,6 +206,10 @@ export enum SocketEventsType {
   v1OnCallTimeout = "v1OnCallTimeout",
   v1OnCallParticipantJoined = "v1OnCallParticipantJoined",
   v1OnIceCandidate = "v1OnIceCandidate",
+  v1OnSwitchAudioVideo = "v1OnSwitchAudioVideo",
+  // Group/Broadcast message status events
+  v1OnGroupMessageStatus = "v1OnGroupMessageStatus",
+  v1OnBroadcastMessageStatus = "v1OnBroadcastMessageStatus",
 
   //server emitter
   v1EnterChatRoom = "v1EnterChatRoom",
@@ -204,6 +218,13 @@ export enum SocketEventsType {
   v1MyOnline = "v1MyOnline",
   v1RoomStatusChange = "v1RoomStatusChange",
   v1IceCandidate = "v1IceCandidate",
+  // Live location server events
+  v1LiveLocationStart = "v1LiveLocationStart",
+  v1LiveLocationUpdate = "v1LiveLocationUpdate",
+  v1LiveLocationStop = "v1LiveLocationStop",
+  // Group/Broadcast message status emitter
+  v1GroupMessageStatus = "v1GroupMessageStatus",
+  v1BroadcastMessageStatus = "v1BroadcastMessageStatus",
 }
 
 export enum NotificationType {
@@ -271,4 +292,8 @@ export enum MessageInfoType {
   AddToBroadcast = "addToBroadcast",
   OneSeenEnabled = "oneSeenEnabled",
   OneSeenDisabled = "oneSeenDisabled",
+  DisappearingEnabled = "disappearingEnabled",
+  DisappearingDisabled = "disappearingDisabled",
+  AdvancedPrivacyEnabled = "advancedPrivacyEnabled",
+  AdvancedPrivacyDisabled = "advancedPrivacyDisabled",
 }

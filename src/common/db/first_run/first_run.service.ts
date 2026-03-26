@@ -115,6 +115,13 @@ export class FirstRunService {
                     publicSearch: false,
                     showStory: UserPrivacyTypes.ForReq,
                     lastSeen: false,
+                    readReceipts: true,
+                    profilePicAllowedUsers: [],
+                    profilePicBlockedUsers: [],
+                    groupAddPermission: UserPrivacyTypes.Public,
+                    callPermission: UserPrivacyTypes.Public,
+                    callAllowedUsers: [],
+                    callBlockedUsers: [],
                 }
             })
             return "Super Admin admin@admin.com with password admin has been created !"

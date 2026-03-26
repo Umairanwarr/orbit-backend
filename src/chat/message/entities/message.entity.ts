@@ -55,7 +55,11 @@ export interface IMessage extends Document {
     //is message edited
     isEdited: boolean,
     //message reactions
-    reactions?: object
+    reactions?: object,
+    //pinned state
+    isPinned?: boolean,
+    pinnedAt?: Date,
+    pinnedBy?: string,
 }
 
 export const MessageSchema: Schema = new Schema({
@@ -65,7 +69,7 @@ export const MessageSchema: Schema = new Schema({
     //senderName
     sName: {type: String, required: true},
     //senderImageThumb
-    sImg: {type: String, required: true},
+    sImg: {type: String, required: false, default: '/v-public/default_user_image.png'},
     //platform
     plm: {
         type: String,
@@ -137,10 +141,53 @@ export const MessageSchema: Schema = new Schema({
     isEdited: {type: Boolean, default: false},
     //message reactions
     reactions: {type: Object, default: null},
+    //pinned state
+    isPinned: {type: Boolean, default: false},
+    pinnedAt: {type: Date, default: null},
+    pinnedBy: {type: Schema.Types.ObjectId, default: null, ref: "user"},
 }, {
     timestamps: true,
 
 });
+// Transform to ensure message media URLs are always relative paths
+MessageSchema.set('toJSON', {
+    transform: function(doc, ret) {
+        if (ret.attachment) {
+            try {
+                const att = typeof ret.attachment === 'string' ? JSON.parse(ret.attachment) : ret.attachment;
+                if (att.url && att.url.startsWith('http')) {
+                    const url = new URL(att.url);
+                    att.url = url.pathname;
+                    ret.attachment = typeof ret.attachment === 'string' ? JSON.stringify(att) : att;
+                    console.log(`Message toJSON transform - Converted attachment URL to: ${att.url}`);
+                }
+            } catch (e) {
+                // Ignore parsing errors
+            }
+        }
+        return ret;
+    }
+});
+
+MessageSchema.set('toObject', {
+    transform: function(doc, ret) {
+        if (ret.attachment) {
+            try {
+                const att = typeof ret.attachment === 'string' ? JSON.parse(ret.attachment) : ret.attachment;
+                if (att.url && att.url.startsWith('http')) {
+                    const url = new URL(att.url);
+                    att.url = url.pathname;
+                    ret.attachment = typeof ret.attachment === 'string' ? JSON.stringify(att) : att;
+                    console.log(`Message toObject transform - Converted attachment URL to: ${att.url}`);
+                }
+            } catch (e) {
+                // Ignore parsing errors
+            }
+        }
+        return ret;
+    }
+});
+
 MessageSchema.plugin(pM)
 
 
@@ -149,3 +196,4 @@ MessageSchema.index({mentions: 1})
 MessageSchema.index({dF: 1})
 MessageSchema.index({sId: 1})
 MessageSchema.index({uId: 1})
+MessageSchema.index({rId: 1, isPinned: 1})

@@ -85,19 +85,14 @@ export class UserStoryController {
             dto.exceptPeople = [];
         }
 
-        // Debug logging
-        console.log('Story creation request:', {
-            storyPrivacy: dto.storyPrivacy,
-            somePeople: dto.somePeople,
-            somePeopleLength: dto.somePeople ? dto.somePeople.length : 0
-        });
-
         return resOK(await this.userStoryService.create(dto));
     }
 
     @Get("/")
     async findAll(@Req() req: any, @Query() dto: object) {
-        return resOK(await this.userStoryService.findAll(req.user._id, dto));
+        const result = await this.userStoryService.findAll(req.user._id, dto);
+        
+        return resOK(result);
     }
 
     @Get("/me")

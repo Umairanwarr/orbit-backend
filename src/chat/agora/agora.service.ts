@@ -16,6 +16,15 @@ export class AgoraService {
     ) {
     }
 
+    private _computeAgoraUid(userId: string): number {
+        let h = 0;
+        for (let i = 0; i < userId.length; i++) {
+            h = (h * 131 + userId.charCodeAt(i)) & 0x7fffffff;
+        }
+        if (h === 0) h = 1;
+        return h;
+    }
+
     getAgoraAccessNew(channelName: string, create: boolean) {
         let role = newAgora.RtcRole.PUBLISHER;
         let expireTime = 3600
@@ -39,6 +48,25 @@ export class AgoraService {
     }
 
     getAgoraAccess(channelName: string, userId: string, create: boolean) {
-        return this.getAgoraAccessNew(channelName, create)
+        let role = newAgora.RtcRole.PUBLISHER;
+        let expireTime = 3600
+        let currentTime = Math.floor(Date.now() / 1000);
+        let privilegeExpireTime = currentTime + expireTime;
+        const uid = this._computeAgoraUid(userId);
+        let token = RtcTokenBuilder.buildTokenWithUid(
+            this.configService.getOrThrow("AGORA_APP_ID"),
+            this.configService.getOrThrow("AGORA_APP_CERTIFICATE"),
+            channelName,
+            uid,
+            role,
+            expireTime,
+            privilegeExpireTime,
+        );
+        return ({
+            'channelName': channelName,
+            'uid': uid,
+            'rtcToken': token,
+            'joinedAt': new Date()
+        });
     }
 }

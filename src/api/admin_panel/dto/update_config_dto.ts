@@ -68,6 +68,9 @@ export class UpdateConfigDto extends CommonDto {
     privacyUrl: string;
 
     @Allow()
+    privacyPolicyText: string;
+
+    @Allow()
     googlePayUrl: string;
 
     @Allow()
@@ -121,4 +124,50 @@ export class UpdateConfigDto extends CommonDto {
     maxForward: number;
 
     backendVersion:string
+
+    // New: list of enabled locale codes, e.g. ["en","sw"]
+    @Allow()
+    activeLocales: string[];
+
+    // Verification settings
+    @Allow()
+    verificationFee?: number;
+
+    @Allow()
+    verificationFeeMonthly?: number;
+
+    @Allow()
+    verificationFeeSixMonths?: number;
+
+    @Allow()
+    verificationFeeYearly?: number;
+
+    @Allow()
+    verificationInstructions?: string;
+
+    // Ads settings
+    @Allow()
+    adSubmissionFee?: number;
+
+    @Allow()
+    driverSubscriptionFee?: number;
+
+    @Allow()
+    announcementText?: string;
+
+    @Allow()
+    announcementUpdatedAt?: number;
+
+    @Allow()
+    professions?: string[];
+
+    // Marketplace promotion settings
+    @Allow()
+    marketplacePromotionWeeklyFee?: number;
+
+    @Allow()
+    marketplacePromotionMonthlyFee?: number;
+
+    @Allow()
+    marketplaceCategories?: string[];
 }

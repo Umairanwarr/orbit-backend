@@ -213,4 +213,28 @@ export class GroupChannelController {
     ) {
         return resOK(await this.groupService.getAvailableUsersToAdd(dto, roomId.roomId,req.user._id));
     }
+
+    // ---------------------- Group Invite Links ----------------------
+    @Get("/:roomId/group/invite-link")
+    async getInviteLink(@Req() req: any, @Param() dto: MongoRoomIdDto) {
+        dto.myUser = req.user;
+        return resOK(await this.groupService.getInviteLink(dto));
+    }
+
+    @Patch("/:roomId/group/invite-link/regenerate")
+    async regenerateInviteLink(@Req() req: any, @Param() dto: MongoRoomIdDto) {
+        dto.myUser = req.user;
+        return resOK(await this.groupService.regenerateInviteLink(dto));
+    }
+
+    @Get("/group/invite/resolve")
+    async resolveInvite(@Req() req: any, @Query('code') code: string) {
+        // Auth guard applies; simply resolve metadata for logged-in users
+        return resOK(await this.groupService.resolveInviteCode(code));
+    }
+
+    @Post("/group/invite/join")
+    async joinByInvite(@Req() req: any, @Body('code') code: string) {
+        return resOK(await this.groupService.joinByInvite(code, req.user));
+    }
 }

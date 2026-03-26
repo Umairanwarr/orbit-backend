@@ -25,6 +25,7 @@ export interface IUserDevice {
     clintVersion?: string,
     createdAt: Date,
     updatedAt: Date,
+    refreshToken?: string,
 }
 
 export const UserDeviceSchema = new mongoose.Schema(
@@ -46,6 +47,7 @@ export const UserDeviceSchema = new mongoose.Schema(
         voipKey: {type: String, default: null},
         language: {type: String, default: "en"},
         clintVersion: {type: String,},
+        refreshToken: { type: String, default: null, select: false },
         lastSeenAt: {type: Date, default: Date.now()},
         visits: {type: Number, default: 1},
         createdAt: {type: Date },

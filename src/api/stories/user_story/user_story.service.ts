@@ -20,7 +20,6 @@ import {MessageChannelService} from "../../../chat/channel/services/message.chan
 import {SendMessageDto} from "../../../chat/channel/dto/send.message.dto";
 import {MongoPeerIdDto} from "../../../core/common/dto/mongo.peer.id.dto";
 import {v4 as uuidv4} from 'uuid';
-import {MemoryService} from "../memory/memory.service";
 import {SocketIoService} from "../../../chat/socket_io/socket_io.service";
 import {SocketEventsType} from "../../../core/utils/enums";
 
@@ -35,7 +34,6 @@ export class UserStoryService {
         private readonly storyAttachmentService: StoryAttachmentService,
         private readonly channelService: ChannelService,
         private readonly messageChannelService: MessageChannelService,
-        private readonly memoryService: MemoryService,
         private readonly socketIoService: SocketIoService,
     ) {
     }
@@ -111,30 +109,6 @@ export class UserStoryService {
             reply: [],
             shares: [],
         });
-
-        // Automatically save story to memories
-        try {
-            console.log('Attempting to save story to memories:', {
-                userId: dto.myUser._id,
-                storyId: story["_id"],
-                storyType: story.storyType
-            });
-
-            const memory = await this.memoryService.create({
-                userId: dto.myUser._id.toString(),
-                storyId: story["_id"].toString(),
-                originalStoryData: story,
-                savedAt: new Date(),
-                reminderDate: this.calculateReminderDate(),
-                isReminderEnabled: true,
-                tags: [],
-            });
-
-            console.log('Successfully saved story to memories:', memory._id);
-        } catch (error) {
-            // Log error but don't fail story creation
-            console.error('Failed to save story to memories:', error);
-        }
 
         return {
             ...story,
@@ -213,7 +187,35 @@ export class UserStoryService {
                                 backgroundColor: "$$story.backgroundColor",
                                 caption: "$$story.caption",
                                 storyType: "$$story.storyType",
-                                att: "$$story.att",
+                                att: {
+                                    $cond: {
+                                        if: { $and: [
+                                            { $ne: ["$$story.att", null] },
+                                            { $ne: ["$$story.att.url", null] }
+                                        ]},
+                                        then: {
+                                            $mergeObjects: [
+                                                "$$story.att",
+                                                {
+                                                    url: {
+                                                        $cond: {
+                                                            if: { $regexMatch: { input: "$$story.att.url", regex: "^http" } },
+                                                            then: "$$story.att.url",
+                                                            else: {
+                                                                $cond: {
+                                                                    if: { $regexMatch: { input: "$$story.att.url", regex: "^/" } },
+                                                                    then: "$$story.att.url",
+                                                                    else: { $concat: ["/media/", "$$story.att.url"] }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        },
+                                        else: "$$story.att"
+                                    }
+                                },
                                 fontType: "$$story.fontType",
                                 expireAt: "$$story.expireAt",
                                 createdAt: "$$story.createdAt",
@@ -261,6 +263,19 @@ export class UserStoryService {
             throw new ForbiddenException(
                 "You dont have access to delete story not belong to you"
             );
+
+        try {
+            const att: any = (story as any)?.att;
+            const url = att?.url;
+            const thumbUrl = att?.thumbUrl;
+            if (typeof url === 'string' && url) {
+                await this.s3.deleteByUrl(url);
+            }
+            if (typeof thumbUrl === 'string' && thumbUrl) {
+                await this.s3.deleteByUrl(thumbUrl);
+            }
+        } catch (_) {
+        }
 
         // Delete the story
         await this.storyService.findByIdAndDelete(dto.id);
@@ -566,14 +581,10 @@ export class UserStoryService {
     }
 
     async getStoryViewsCount(storyId: string) {
-        const story = await this.storyService.findByIdOrThrow(storyId);
-        return { viewsCount: story.views ? story.views.length : 0 };
+    let story = await this.storyService.findById(storyId);
+    if (!story) {
+        throw new BadRequestException("story not found")
     }
-
-    private calculateReminderDate(): Date {
-        // Set reminder for next year on the same date
-        const nextYear = new Date();
-        nextYear.setFullYear(nextYear.getFullYear() + 1);
-        return nextYear;
+    return { viewsCount: story.views ? story.views.length : 0 };
     }
 }

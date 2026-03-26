@@ -63,6 +63,7 @@ export class UserFilesController {
     }
 
     @Post('upload')
+    @UseGuards(VerifiedAuthGuard)
     @UseInterceptors(
         FileInterceptor('file', { // Changed from 'files' to 'file'
             limits: {
@@ -105,12 +106,9 @@ export class UserFilesController {
         });
 
         try {
-            // Get user ID from token since we don't have auth guard
-            const userId = this.extractUserIdFromToken(req.headers.authorization);
-            console.log('Extracted user ID:', userId);
-
+            const userId = req.user?._id;
             if (!userId) {
-                throw new Error('Could not extract user ID from token');
+                throw new Error('Unauthorized: missing user');
             }
 
             const uploadedFiles = await this.userFilesService.uploadFiles([file], userId);
