@@ -1,8 +1,6 @@
-
-
 import { Module } from "@nestjs/common";
 import { AppController } from "./app.controller";
-import { MediaProxyController } from './common/media_proxy.controller';
+import { MediaProxyController } from "./common/media_proxy.controller";
 import { UserModule } from "./api/user_modules/user/user.module";
 import { InjectConnection, MongooseModule } from "@nestjs/mongoose";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
@@ -31,31 +29,31 @@ import { AdminNotificationModule } from "./api/admin_notification/admin_notifica
 import { AdminPanelModule } from "./api/admin_panel/admin_panel.module";
 import { ReportSystemModule } from "./api/report_system/report_system.module";
 import { NotificationEmitterModule } from "./common/notification_emitter/notification_emitter.module";
-import { SocketIoModule } from './chat/socket_io/socket_io.module';
-import { GroupMessageStatusModule } from './chat/group_message_status/group_message_status.module';
-import { MessageModule } from './chat/message/message.module';
-import { GroupSettingsModule } from './chat/group_settings/group_settings.module';
-import { GroupMemberModule } from './chat/group_member/group_member.module';
-import { BroadcastSettingsModule } from './chat/broadcast_settings/broadcast_settings.module';
-import { BroadcastMemberModule } from './chat/broadcast_member/broadcast_member.module';
-import { OrderRoomSettingsModule } from './chat/order_room_settings/order_room_settings.module';
-import { SingleRoomSettingsModule } from './chat/single_room_settings/single_room_settings.module';
-import { RoomMemberModule } from './chat/room_member/room_member.module';
-import { RoomMiddlewareModule } from './chat/room_middleware/room_middleware.module';
+import { SocketIoModule } from "./chat/socket_io/socket_io.module";
+import { GroupMessageStatusModule } from "./chat/group_message_status/group_message_status.module";
+import { MessageModule } from "./chat/message/message.module";
+import { GroupSettingsModule } from "./chat/group_settings/group_settings.module";
+import { GroupMemberModule } from "./chat/group_member/group_member.module";
+import { BroadcastSettingsModule } from "./chat/broadcast_settings/broadcast_settings.module";
+import { BroadcastMemberModule } from "./chat/broadcast_member/broadcast_member.module";
+import { OrderRoomSettingsModule } from "./chat/order_room_settings/order_room_settings.module";
+import { SingleRoomSettingsModule } from "./chat/single_room_settings/single_room_settings.module";
+import { RoomMemberModule } from "./chat/room_member/room_member.module";
+import { RoomMiddlewareModule } from "./chat/room_middleware/room_middleware.module";
 
-import { ChannelModule } from './chat/channel/channel.module';
+import { ChannelModule } from "./chat/channel/channel.module";
 import { CallMemberModule } from "./chat/call_modules/call_member/call_member.module";
 import { CallModule } from "./chat/call_modules/call/call.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { MailEmitterModule } from "./api/mail/mail.emitter.module";
-import { AgoraModule } from './chat/agora/agora.module';
-import { StoryModule } from './api/stories/story/story.module';
-import { UserStoryModule } from './api/stories/user_story/user_story.module';
+import { AgoraModule } from "./chat/agora/agora.module";
+import { StoryModule } from "./api/stories/story/story.module";
+import { UserStoryModule } from "./api/stories/user_story/user_story.module";
 import { IUser } from "./api/user_modules/user/entities/user.entity";
-import { DbMigrateModule } from './common/db/db_migrate/db_migrate.module';
-import { version } from '../package.json';
-import { FirstRunModule } from './common/db/first_run/first_run.module';
-import { ChatRequestModule } from './chat/chat_request/chat_request.module';
+import { DbMigrateModule } from "./common/db/db_migrate/db_migrate.module";
+import { version } from "../package.json";
+import { FirstRunModule } from "./common/db/first_run/first_run.module";
+import { ChatRequestModule } from "./chat/chat_request/chat_request.module";
 import { StoryAttachmentModule } from "./api/stories/story_attachment/story_attachment.module";
 import { CallHistoryModule } from "./chat/call_modules/call_history/call_history.module";
 import { UserFilesModule } from "./api/user_modules/user_files/user_files.module";
@@ -66,119 +64,116 @@ import { PesapalModule } from "./api/payments/pesapal/pesapal.module";
 import { MpesaModule } from "./api/payments/mpesa/mpesa.module";
 import { VerificationModule } from "./api/verification/verification.module";
 import { AdsModule } from "./api/ads/ads.module";
-import { DriverApplicationsModule } from './api/drivers/driver_applications.module';
-import { DriverPresenceModule } from './api/drivers/driver_presence.module';
-import { SellerApplicationsModule } from './api/sellers/seller_applications.module';
-import { RidesModule } from './api/rides/rides.module';
-import { ScheduledMessageModule } from './chat/scheduled_message/scheduled_message.module';
-import { CommunityModule } from './chat/community/community.module';
-import { EmergencyContactModule } from './api/user_modules/emergency_contact/emergency_contact.module';
-import { JobsModule } from './api/jobs/jobs.module';
-import { WithdrawRequestsModule } from './api/wallet/withdraw_requests.module';
-import { MusicModule } from './api/music/music.module';
-import { ArticlesModule } from './api/articles/articles.module';
-import { MarketplaceListingsModule } from './api/marketplace/marketplace_listings.module';
+import { DriverApplicationsModule } from "./api/drivers/driver_applications.module";
+import { DriverPresenceModule } from "./api/drivers/driver_presence.module";
+import { SellerApplicationsModule } from "./api/sellers/seller_applications.module";
+import { RidesModule } from "./api/rides/rides.module";
+import { ScheduledMessageModule } from "./chat/scheduled_message/scheduled_message.module";
+import { CommunityModule } from "./chat/community/community.module";
+import { EmergencyContactModule } from "./api/user_modules/emergency_contact/emergency_contact.module";
+import { JobsModule } from "./api/jobs/jobs.module";
+import { WithdrawRequestsModule } from "./api/wallet/withdraw_requests.module";
+import { MusicModule } from "./api/music/music.module";
+import { ArticlesModule } from "./api/articles/articles.module";
+import { MarketplaceListingsModule } from "./api/marketplace/marketplace_listings.module";
 // PaystackModule removed – replaced by PesapalModule
 import { UserFollowModule } from "./api/user_modules/user_follow/user_follow.module";
 
 @Module({
-    imports: [
-        UserModule,
-        ScheduleModule.forRoot(),
-        EventEmitterModule.forRoot(),
-        ConfigModule.forRoot({
-            isGlobal: true,
-            ignoreEnvFile: process.env.ignoreEnvFile == "true",
-            envFilePath: path.join(root.path, ".env." + process.env.NODE_ENV)
-        }),
-        ThrottlerModule.forRoot({
-            ttl: 60 * 5, // 5 minutes
-            limit: 800,
-            ignoreUserAgents: [/googlebot/gi, /bingbot/gi, /baidubot/gi]
-        }),
-        MongooseModule.forRootAsync({
-            inject: [ConfigService],
-            useFactory: async (conf: ConfigService) => {
-                const dbUrl = conf.getOrThrow<string>("DB_URL");
-                console.log('DB_URL from ConfigService:', dbUrl); // Log the DB_URL
-                return {
-                    uri: conf.getOrThrow<string>("DB_URL")
-                };
-            }
-        }),
-        UserDeviceModule,
-        CountriesModule,
-        UserCountryModule,
-        MailEmitterModule,
-        VersionsModule,
-        AppConfigModule,
-        AuthModule,
-        FileUploaderModule,
-        ProfileModule,
-        UserBanModule,
-        UserFollowModule,
-        BanModule,
-        UserVersionModule,
-        AdminNotificationModule,
-        AdminPanelModule,
-        ReportSystemModule,
-        NotificationEmitterModule,
-        SocketIoModule,
-        GroupMessageStatusModule,
-        MessageModule,
-        GroupSettingsModule,
-        GroupMemberModule,
-        BroadcastSettingsModule,
-        BroadcastMemberModule,
-        OrderRoomSettingsModule,
-        SingleRoomSettingsModule,
-        RoomMemberModule,
-        RoomMiddlewareModule,
-        CallMemberModule,
-        CallModule,
-        ChannelModule,
-        AgoraModule,
-        StoryModule,
-        UserStoryModule,
-        FirstRunModule,
-        DbMigrateModule,
-        ChatRequestModule,
-        StoryAttachmentModule,
-        CallHistoryModule,
-        UserFilesModule,
-        LoyaltyPointsModule,
-        GiftModule,
-        LiveStreamModule,
-        PesapalModule,
-        MpesaModule,
-        VerificationModule,
-        AdsModule,
-        DriverApplicationsModule,
-        DriverPresenceModule,
-        SellerApplicationsModule,
-        RidesModule,
-        ScheduledMessageModule,
-        CommunityModule,
-        EmergencyContactModule,
-        JobsModule,
-        WithdrawRequestsModule,
-        MusicModule,
-        ArticlesModule,
-        MarketplaceListingsModule,
-
-
-    ],
-    controllers: [AppController, MediaProxyController],
-    providers: [
-        {
-            provide: APP_FILTER,
-            useClass: AllExceptionFilter
-        },
-        {
-            provide: APP_GUARD,
-            useClass: ThrottlerGuard
-        }
-    ]
+  imports: [
+    UserModule,
+    ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      ignoreEnvFile: process.env.ignoreEnvFile == "true",
+      envFilePath: path.join(root.path, ".env." + process.env.NODE_ENV),
+    }),
+    ThrottlerModule.forRoot({
+      ttl: 60 * 5, // 5 minutes
+      limit: 800,
+      ignoreUserAgents: [/googlebot/gi, /bingbot/gi, /baidubot/gi],
+    }),
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: async (conf: ConfigService) => {
+        const dbUrl = conf.getOrThrow<string>("DB_URL");
+        console.log("DB_URL from ConfigService:", dbUrl); // Log the DB_URL
+        return {
+          uri: conf.getOrThrow<string>("DB_URL"),
+        };
+      },
+    }),
+    UserDeviceModule,
+    CountriesModule,
+    UserCountryModule,
+    MailEmitterModule,
+    VersionsModule,
+    AppConfigModule,
+    AuthModule,
+    FileUploaderModule,
+    ProfileModule,
+    UserBanModule,
+    UserFollowModule,
+    BanModule,
+    UserVersionModule,
+    AdminNotificationModule,
+    AdminPanelModule,
+    ReportSystemModule,
+    NotificationEmitterModule,
+    SocketIoModule,
+    GroupMessageStatusModule,
+    MessageModule,
+    GroupSettingsModule,
+    GroupMemberModule,
+    BroadcastSettingsModule,
+    BroadcastMemberModule,
+    OrderRoomSettingsModule,
+    SingleRoomSettingsModule,
+    RoomMemberModule,
+    RoomMiddlewareModule,
+    CallMemberModule,
+    CallModule,
+    ChannelModule,
+    AgoraModule,
+    StoryModule,
+    UserStoryModule,
+    FirstRunModule,
+    DbMigrateModule,
+    ChatRequestModule,
+    StoryAttachmentModule,
+    CallHistoryModule,
+    UserFilesModule,
+    LoyaltyPointsModule,
+    GiftModule,
+    LiveStreamModule,
+    PesapalModule,
+    MpesaModule,
+    VerificationModule,
+    AdsModule,
+    DriverApplicationsModule,
+    DriverPresenceModule,
+    SellerApplicationsModule,
+    RidesModule,
+    ScheduledMessageModule,
+    CommunityModule,
+    EmergencyContactModule,
+    JobsModule,
+    WithdrawRequestsModule,
+    MusicModule,
+    ArticlesModule,
+    MarketplaceListingsModule,
+  ],
+  controllers: [AppController, MediaProxyController],
+  providers: [
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionFilter,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
-export class AppModule {
-}
+export class AppModule {}
