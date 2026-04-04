@@ -55,6 +55,8 @@ export interface IUser {
   claimedGifts: string[];
   roles: UserRole[];
   userPrivacy: UserPrivacy;
+  followersCount: number;
+  followingCount: number;
   //not saved in db
   currentDevice: IUserDevice;
   resetPasswordOTP?: string;
@@ -99,7 +101,11 @@ export const UserSchema = new mongoose.Schema(
       type: Object,
       default: UserGlobalCallStatus.createEmpty(),
     },
-    gender: { type: String, enum: ["male", "female", "other"], default: "male" },
+    gender: {
+      type: String,
+      enum: ["male", "female", "other"],
+      default: "male",
+    },
     latitude: { type: Number, default: null },
     longitude: { type: Number, default: null },
     locationUpdatedAt: { type: Date, default: null },
@@ -151,6 +157,8 @@ export const UserSchema = new mongoose.Schema(
         callBlockedUsers: [],
       },
     },
+    followersCount: { type: Number, default: 0 },
+    followingCount: { type: Number, default: 0 },
     lastSeenAt: { type: Date, default: Date.now },
     loyaltyPoints: { type: Number, default: 0 },
     balance: { type: Number, default: 0 },
@@ -171,7 +179,7 @@ export const UserSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 UserSchema.pre("save", async function (next) {
@@ -201,42 +209,48 @@ UserSchema.pre("findOneAndUpdate", async function (next) {
 });
 
 // Transform to ensure userImage URLs are always relative paths
-UserSchema.set('toJSON', {
-    transform: function(doc, ret) {
-        if (ret.userImage && ret.userImage.startsWith('http')) {
-            // Extract the path part from full URL
-            const url = new URL(ret.userImage);
-            // Preserve Cloudinary (and other external CDN) URLs.
-            // Only convert to relative path when it's our own domain.
-            const host = (url.hostname || '').toLowerCase();
-            const isCloudinary = host.includes('res.cloudinary.com');
-            const isOurDomain = host.endsWith('orbit.ke') || host.endsWith('superupdev.online');
-            if (!isCloudinary && isOurDomain) {
-                ret.userImage = url.pathname;
-                console.log(`User toJSON transform - Converted userImage to: ${ret.userImage}`);
-            }
-        }
-        return ret;
+UserSchema.set("toJSON", {
+  transform: function (doc, ret) {
+    if (ret.userImage && ret.userImage.startsWith("http")) {
+      // Extract the path part from full URL
+      const url = new URL(ret.userImage);
+      // Preserve Cloudinary (and other external CDN) URLs.
+      // Only convert to relative path when it's our own domain.
+      const host = (url.hostname || "").toLowerCase();
+      const isCloudinary = host.includes("res.cloudinary.com");
+      const isOurDomain =
+        host.endsWith("orbit.ke") || host.endsWith("superupdev.online");
+      if (!isCloudinary && isOurDomain) {
+        ret.userImage = url.pathname;
+        console.log(
+          `User toJSON transform - Converted userImage to: ${ret.userImage}`,
+        );
+      }
     }
+    return ret;
+  },
 });
 
-UserSchema.set('toObject', {
-    transform: function(doc, ret) {
-        if (ret.userImage && ret.userImage.startsWith('http')) {
-            // Extract the path part from full URL
-            const url = new URL(ret.userImage);
-            // Preserve Cloudinary (and other external CDN) URLs.
-            // Only convert to relative path when it's our own domain.
-            const host = (url.hostname || '').toLowerCase();
-            const isCloudinary = host.includes('res.cloudinary.com');
-            const isOurDomain = host.endsWith('orbit.ke') || host.endsWith('superupdev.online');
-            if (!isCloudinary && isOurDomain) {
-                ret.userImage = url.pathname;
-                console.log(`User toObject transform - Converted userImage to: ${ret.userImage}`);
-            }
-        }
-        return ret;
+UserSchema.set("toObject", {
+  transform: function (doc, ret) {
+    if (ret.userImage && ret.userImage.startsWith("http")) {
+      // Extract the path part from full URL
+      const url = new URL(ret.userImage);
+      // Preserve Cloudinary (and other external CDN) URLs.
+      // Only convert to relative path when it's our own domain.
+      const host = (url.hostname || "").toLowerCase();
+      const isCloudinary = host.includes("res.cloudinary.com");
+      const isOurDomain =
+        host.endsWith("orbit.ke") || host.endsWith("superupdev.online");
+      if (!isCloudinary && isOurDomain) {
+        ret.userImage = url.pathname;
+        console.log(
+          `User toObject transform - Converted userImage to: ${ret.userImage}`,
+        );
+      }
     }
+    return ret;
+  },
 });
 
 UserSchema.plugin(pM);

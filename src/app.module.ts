@@ -78,6 +78,8 @@ import { ArticlesModule } from "./api/articles/articles.module";
 import { MarketplaceListingsModule } from "./api/marketplace/marketplace_listings.module";
 // PaystackModule removed – replaced by PesapalModule
 import { UserFollowModule } from "./api/user_modules/user_follow/user_follow.module";
+import { PostModule } from "./api/post_module/post.module";
+import { DiscoveryModule } from "./api/DiscoveryModule/discovery.module";
 
 @Module({
   imports: [
@@ -163,6 +165,8 @@ import { UserFollowModule } from "./api/user_modules/user_follow/user_follow.mod
     MusicModule,
     ArticlesModule,
     MarketplaceListingsModule,
+    PostModule,
+    DiscoveryModule,
   ],
   controllers: [AppController, MediaProxyController],
   providers: [
