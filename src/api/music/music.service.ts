@@ -1,32 +1,43 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { IMusic } from './music.entity';
-import { FileUploaderService } from '../../common/file_uploader/file_uploader.service';
-import { CreateS3UploaderDto } from '../../common/file_uploader/create-s3_uploader.dto';
-import { IUser } from '../user_modules/user/entities/user.entity';
-import { PesapalService } from '../payments/pesapal/pesapal.service';
-import { UserRole } from '../../core/utils/enums';
-import { VideoThumbnailUtil } from '../../core/utils/video-thumbnail.util';
-import { v2 as cloudinary } from 'cloudinary';
-import fs from 'fs';
-import path from 'path';
-import root from 'app-root-path';
-import { MusicReportService } from './music_report.service';
-import { NotificationEmitterService } from '../../common/notification_emitter/notification_emitter.service';
-import { NotificationData } from '../../common/notification_emitter/notification.event';
-import { UserFollowService } from '../user_modules/user_follow/user_follow.service';
-import { UserDeviceService } from '../user_modules/user_device/user_device.service';
-import { isUUID } from 'class-validator';
-import { UserService } from '../user_modules/user/user.service';
-import { v4 as uuidv4 } from 'uuid';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+} from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model, Types } from "mongoose";
+import { IMusic } from "./music.entity";
+import { FileUploaderService } from "../../common/file_uploader/file_uploader.service";
+import { CreateS3UploaderDto } from "../../common/file_uploader/create-s3_uploader.dto";
+import { IUser } from "../user_modules/user/entities/user.entity";
+import { PesapalService } from "../payments/pesapal/pesapal.service";
+import { UserRole } from "../../core/utils/enums";
+import { VideoThumbnailUtil } from "../../core/utils/video-thumbnail.util";
+import { v2 as cloudinary } from "cloudinary";
+import fs from "fs";
+import path from "path";
+import root from "app-root-path";
+import { MusicReportService } from "./music_report.service";
+import { NotificationEmitterService } from "../../common/notification_emitter/notification_emitter.service";
+import { NotificationData } from "../../common/notification_emitter/notification.event";
+import { UserFollowService } from "../user_modules/user_follow/user_follow.service";
+import { UserDeviceService } from "../user_modules/user_device/user_device.service";
+import { isUUID } from "class-validator";
+import { UserService } from "../user_modules/user/user.service";
+import { v4 as uuidv4 } from "uuid";
+import { IMusicHistory } from "./schemas/music-history.schema";
+import { IMusicQueue } from "./schemas/music-queue.schema";
 
 @Injectable()
 export class MusicService {
   constructor(
-    @InjectModel('Music') private readonly musicModel: Model<IMusic>,
-    @InjectModel('MusicSupport') private readonly supportModel: Model<any>,
-    @InjectModel('MusicComment') private readonly commentModel: Model<any>,
+    @InjectModel("Music") private readonly musicModel: Model<IMusic>,
+    @InjectModel("MusicSupport") private readonly supportModel: Model<any>,
+    @InjectModel("MusicComment") private readonly commentModel: Model<any>,
+    @InjectModel("music_history")
+    private readonly musicHistoryModel: Model<IMusicHistory>,
+    @InjectModel("music_queue")
+    private readonly musicQueueModel: Model<IMusicQueue>,
     private readonly fileUploader: FileUploaderService,
     private readonly pesapal: PesapalService,
     private readonly userService: UserService,
@@ -34,7 +45,7 @@ export class MusicService {
     private readonly notificationEmitter: NotificationEmitterService,
     private readonly userFollowService: UserFollowService,
     private readonly userDeviceService: UserDeviceService,
-  ) { }
+  ) {}
 
   private _chunk<T>(arr: T[], size: number): T[][] {
     if (size <= 0) return [arr];
@@ -45,15 +56,18 @@ export class MusicService {
     return res;
   }
 
-  private async _notifyFollowersOnNewVideo(params: { music: IMusic; uploader: IUser }) {
+  private async _notifyFollowersOnNewVideo(params: {
+    music: IMusic;
+    uploader: IUser;
+  }) {
     const { music, uploader } = params;
     try {
-      const uploaderId = ((uploader as any)?._id ?? '').toString();
+      const uploaderId = ((uploader as any)?._id ?? "").toString();
       if (!uploaderId) return;
 
       const followDocs = await this.userFollowService.findAll(
         { followingId: new Types.ObjectId(uploaderId) } as any,
-        'followerId',
+        "followerId",
         { lean: true } as any,
       );
       const followerIds: string[] = (followDocs as any[])
@@ -63,22 +77,25 @@ export class MusicService {
       if (followerIds.length === 0) return;
 
       const devices = await this.userDeviceService.findAll(
-        { uId: { $in: followerIds.map((id) => new Types.ObjectId(id)) }, pushKey: { $ne: null } } as any,
-        'pushKey pushProvider',
+        {
+          uId: { $in: followerIds.map((id) => new Types.ObjectId(id)) },
+          pushKey: { $ne: null },
+        } as any,
+        "pushKey pushProvider",
         { lean: true } as any,
       );
 
       const fcmTokens = new Set<string>();
       const oneSignalTokens = new Set<string>();
       for (const d of (devices as any[]) || []) {
-        const key = (d?.pushKey ?? '').toString();
+        const key = (d?.pushKey ?? "").toString();
         if (!key) continue;
-        const provider = (d?.pushProvider ?? '').toString();
-        if (provider === 'fcm') {
+        const provider = (d?.pushProvider ?? "").toString();
+        if (provider === "fcm") {
           fcmTokens.add(key);
           continue;
         }
-        if (provider === 'onesignal') {
+        if (provider === "onesignal") {
           oneSignalTokens.add(key);
           continue;
         }
@@ -92,15 +109,16 @@ export class MusicService {
         }
       }
 
-      const mt = (music as any)?.mediaType?.toString?.() ?? 'video';
-      const title = mt === 'audio' ? 'New audio upload' : 'New music video';
-      const uploaderName = (uploader as any)?.fullName?.toString?.() ?? 'Artist';
-      const musicTitle = (music as any)?.title?.toString?.() ?? 'New upload';
+      const mt = (music as any)?.mediaType?.toString?.() ?? "video";
+      const title = mt === "audio" ? "New audio upload" : "New music video";
+      const uploaderName =
+        (uploader as any)?.fullName?.toString?.() ?? "Artist";
+      const musicTitle = (music as any)?.title?.toString?.() ?? "New upload";
       const body = `${uploaderName} uploaded: ${musicTitle}`;
 
       const data = {
-        type: 'music_upload',
-        musicId: (music as any)?._id?.toString?.() ?? '',
+        type: "music_upload",
+        musicId: (music as any)?._id?.toString?.() ?? "",
         uploaderId,
         uploaderName,
         mediaType: mt,
@@ -137,34 +155,40 @@ export class MusicService {
         );
       }
     } catch (e) {
-      console.log('[Music][NotifyFollowers] Failed:', e?.message || e);
+      console.log("[Music][NotifyFollowers] Failed:", e?.message || e);
     }
   }
 
   async getMusicByIdOrThrow(id: string) {
     const doc = await this.musicModel.findById(id);
-    if (!doc) throw new NotFoundException('Music item not found');
+    if (!doc) throw new NotFoundException("Music item not found");
     return doc;
   }
 
-  async createMusic(user: IUser, file: Express.Multer.File, body: any): Promise<IMusic> {
+  async createMusic(
+    user: IUser,
+    file: Express.Multer.File,
+    body: any,
+  ): Promise<IMusic> {
     if (!file || !file.buffer) {
-      throw new BadRequestException('file is required');
+      throw new BadRequestException("file is required");
     }
 
-    const mime = file.mimetype || '';
-    let mediaType: 'audio' | 'video';
-    if (mime.startsWith('video/')) {
-      mediaType = 'video';
-    } else if (mime.startsWith('audio/')) {
-      mediaType = 'audio';
+    const mime = file.mimetype || "";
+    let mediaType: "audio" | "video";
+    if (mime.startsWith("video/")) {
+      mediaType = "video";
+    } else if (mime.startsWith("audio/")) {
+      mediaType = "audio";
     } else {
-      throw new BadRequestException('Only audio and video files are allowed');
+      throw new BadRequestException("Only audio and video files are allowed");
     }
 
-    const ext = path.extname(file.originalname || '') || (mediaType === 'audio' ? '.mp3' : '.mp4');
+    const ext =
+      path.extname(file.originalname || "") ||
+      (mediaType === "audio" ? ".mp3" : ".mp4");
     const fileName = `${uuidv4()}${ext}`;
-    const mediaDir = path.join(root.path, 'public', 'media', 'music');
+    const mediaDir = path.join(root.path, "public", "media", "music");
     if (!fs.existsSync(mediaDir)) {
       fs.mkdirSync(mediaDir, { recursive: true });
     }
@@ -174,42 +198,47 @@ export class MusicService {
 
     // Generate thumbnail for videos
     let thumbnailUrl: string | undefined;
-    if (mediaType === 'video') {
+    if (mediaType === "video") {
       try {
-        thumbnailUrl = await VideoThumbnailUtil.generateLocalThumbnail(file.buffer, {
-          fileExt: ext,
-        });
+        thumbnailUrl = await VideoThumbnailUtil.generateLocalThumbnail(
+          file.buffer,
+          {
+            fileExt: ext,
+          },
+        );
       } catch (error) {
-        console.warn('Warning: Failed to generate video thumbnail:', error);
-        const fallback = '';
+        console.warn("Warning: Failed to generate video thumbnail:", error);
+        const fallback = "";
         if (fallback) {
           thumbnailUrl = fallback;
         }
       }
 
       if (!thumbnailUrl) {
-        const fallback = '';
+        const fallback = "";
         if (fallback) {
           thumbnailUrl = fallback;
         }
       }
     }
 
-    const title = (body?.title || file.originalname || '').toString().trim() || 'Untitled';
-    const description = (body?.description || '').toString();
-    const genreRaw = (body?.genre ?? '').toString().trim();
+    const title =
+      (body?.title || file.originalname || "").toString().trim() || "Untitled";
+    const description = (body?.description || "").toString();
+    const genreRaw = (body?.genre ?? "").toString().trim();
     const genre = genreRaw ? genreRaw : undefined;
-    const durationMs = body?.durationMs != null ? Number(body.durationMs) : undefined;
-    let category: 'music' | 'audio' | 'video' | undefined = undefined;
-    const c = (body?.category || '').toString().toLowerCase();
-    if (c === 'music' && mediaType !== 'audio') {
+    const durationMs =
+      body?.durationMs != null ? Number(body.durationMs) : undefined;
+    let category: "music" | "audio" | "video" | undefined = undefined;
+    const c = (body?.category || "").toString().toLowerCase();
+    if (c === "music" && mediaType !== "audio") {
       // Prevent assigning music category to non-audio
-      category = 'video';
-    } else if (['music', 'audio', 'video'].includes(c)) {
+      category = "video";
+    } else if (["music", "audio", "video"].includes(c)) {
       category = c as any;
     } else {
       // Default: audio uploads go to 'music' category, videos to 'video'
-      category = mediaType === 'audio' ? 'music' : 'video';
+      category = mediaType === "audio" ? "music" : "video";
     }
 
     const doc = await this.musicModel.create({
@@ -231,30 +260,33 @@ export class MusicService {
     });
 
     // Notify followers on new video upload (non-blocking)
-    if (mediaType === 'video' || mediaType === 'audio') {
-      void this._notifyFollowersOnNewVideo({ music: doc as any, uploader: user });
+    if (mediaType === "video" || mediaType === "audio") {
+      void this._notifyFollowersOnNewVideo({
+        music: doc as any,
+        uploader: user,
+      });
     }
 
     return doc;
   }
 
   async list(params: any) {
-    const userId = (params?.userId || '').toString();
+    const userId = (params?.userId || "").toString();
     const page = parseInt(params?.page, 10) || 1;
     const limit = Math.min(parseInt(params?.limit, 10) || 20, 100);
     const type = params?.mediaType?.toString();
     const category = params?.category?.toString();
     const uploaderId = params?.uploaderId?.toString();
-    const searchRaw = (params?.q ?? params?.query ?? '').toString().trim();
+    const searchRaw = (params?.q ?? params?.query ?? "").toString().trim();
 
-    const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const search = searchRaw ? escapeRegex(searchRaw) : '';
+    const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const search = searchRaw ? escapeRegex(searchRaw) : "";
 
     const q: any = {};
-    if (type === 'audio' || type === 'video') {
+    if (type === "audio" || type === "video") {
       q.mediaType = type;
     }
-    if (category === 'music' || category === 'audio' || category === 'video') {
+    if (category === "music" || category === "audio" || category === "video") {
       q.category = category;
     }
     if (uploaderId && Types.ObjectId.isValid(uploaderId)) {
@@ -263,9 +295,9 @@ export class MusicService {
 
     if (search) {
       q.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { 'uploaderData.fullName': { $regex: search, $options: 'i' } },
+        { title: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { "uploaderData.fullName": { $regex: search, $options: "i" } },
       ];
     }
 
@@ -276,13 +308,16 @@ export class MusicService {
       .limit(limit);
 
     if (!userId) {
-      listQuery.select('-likedBy');
+      listQuery.select("-likedBy");
     }
 
-    const [docs, total] = await Promise.all([listQuery.lean(), this.musicModel.countDocuments(q)]);
+    const [docs, total] = await Promise.all([
+      listQuery.lean(),
+      this.musicModel.countDocuments(q),
+    ]);
 
     for (const d of docs as any[]) {
-      if ((d as any)?.mediaType === 'video' && !(d as any)?.thumbnailUrl) {
+      if ((d as any)?.mediaType === "video" && !(d as any)?.thumbnailUrl) {
         const t = this._buildCloudinaryVideoThumbnailUrl((d as any)?.mediaUrl);
         if (t) {
           (d as any).thumbnailUrl = t;
@@ -293,7 +328,9 @@ export class MusicService {
     if (userId) {
       for (const d of docs as any[]) {
         const likedBy = Array.isArray(d.likedBy) ? d.likedBy : [];
-        d.isLiked = likedBy.map((x: any) => x?.toString?.() ?? x).includes(userId);
+        d.isLiked = likedBy
+          .map((x: any) => x?.toString?.() ?? x)
+          .includes(userId);
         delete d.likedBy;
       }
     }
@@ -309,10 +346,14 @@ export class MusicService {
   async toggleLike(user: IUser, musicId: string) {
     const userId = (user as any)._id.toString();
     const music = await this.musicModel.findById(musicId).lean();
-    if (!music) throw new NotFoundException('Music item not found');
+    if (!music) throw new NotFoundException("Music item not found");
 
-    const likedBy = Array.isArray((music as any).likedBy) ? (music as any).likedBy : [];
-    const hasLiked = likedBy.map((x: any) => x?.toString?.() ?? x).includes(userId);
+    const likedBy = Array.isArray((music as any).likedBy)
+      ? (music as any).likedBy
+      : [];
+    const hasLiked = likedBy
+      .map((x: any) => x?.toString?.() ?? x)
+      .includes(userId);
 
     if (hasLiked) {
       await this.musicModel.updateOne(
@@ -326,7 +367,9 @@ export class MusicService {
       );
     }
 
-    const updated = await this.musicModel.findById(musicId, 'likesCount').lean();
+    const updated = await this.musicModel
+      .findById(musicId, "likesCount")
+      .lean();
     return {
       liked: !hasLiked,
       likesCount: (updated as any)?.likesCount ?? 0,
@@ -336,7 +379,7 @@ export class MusicService {
   async listComments(musicId: string, params: any) {
     const page = parseInt(params?.page, 10) || 1;
     const limit = Math.min(parseInt(params?.limit, 10) || 20, 100);
-    const flat = params?.flat === 'true' || params?.flat === true;
+    const flat = params?.flat === "true" || params?.flat === true;
 
     // Get top-level comments only
     const query: any = { musicId, parentCommentId: null };
@@ -367,19 +410,26 @@ export class MusicService {
     }
 
     // Get replies for these top-level comments
-    const parentIds = (docs as any[]).map(d => d._id?.toString?.() ?? d._id).filter(Boolean);
+    const parentIds = (docs as any[])
+      .map((d) => d._id?.toString?.() ?? d._id)
+      .filter(Boolean);
     let replies: any[] = [];
     if (parentIds.length > 0) {
       replies = await this.commentModel
-        .find({ musicId, parentCommentId: { $in: parentIds.map(id => new Types.ObjectId(id)) } })
+        .find({
+          musicId,
+          parentCommentId: {
+            $in: parentIds.map((id) => new Types.ObjectId(id)),
+          },
+        })
         .sort({ createdAt: 1 })
         .lean();
     }
 
     // Nest replies under their parent comments
-    const docsWithReplies = (docs as any[]).map(d => {
+    const docsWithReplies = (docs as any[]).map((d) => {
       const commentId = d._id?.toString?.() ?? d._id;
-      const commentReplies = replies.filter(r => {
+      const commentReplies = replies.filter((r) => {
         const parentId = r.parentCommentId?.toString?.() ?? r.parentCommentId;
         return parentId === commentId;
       });
@@ -399,21 +449,24 @@ export class MusicService {
   }
 
   async addComment(user: IUser, musicId: string, body: any) {
-    const text = (body?.text ?? '').toString().trim();
-    const parentCommentId = (body?.parentCommentId ?? '').toString().trim();
-    if (!text) throw new BadRequestException('text is required');
+    const text = (body?.text ?? "").toString().trim();
+    const parentCommentId = (body?.parentCommentId ?? "").toString().trim();
+    if (!text) throw new BadRequestException("text is required");
 
     const music = await this.musicModel.findById(musicId);
-    if (!music) throw new NotFoundException('Music item not found');
+    if (!music) throw new NotFoundException("Music item not found");
 
     const userId = (user as any)._id.toString();
 
     // If replying to a comment, verify the parent comment exists
     if (parentCommentId) {
       const parentComment = await this.commentModel.findById(parentCommentId);
-      if (!parentComment) throw new NotFoundException('Parent comment not found');
+      if (!parentComment)
+        throw new NotFoundException("Parent comment not found");
       if (parentComment.musicId?.toString?.() !== musicId) {
-        throw new BadRequestException('Parent comment does not belong to this music item');
+        throw new BadRequestException(
+          "Parent comment does not belong to this music item",
+        );
       }
     }
 
@@ -421,7 +474,9 @@ export class MusicService {
       musicId: music._id,
       userId,
       text,
-      parentCommentId: parentCommentId ? new Types.ObjectId(parentCommentId) : null,
+      parentCommentId: parentCommentId
+        ? new Types.ObjectId(parentCommentId)
+        : null,
       userData: {
         _id: userId,
         fullName: (user as any).fullName,
@@ -429,8 +484,13 @@ export class MusicService {
       },
     });
 
-    await this.musicModel.updateOne({ _id: musicId }, { $inc: { commentsCount: 1 } });
-    const updated = await this.musicModel.findById(musicId, 'commentsCount').lean();
+    await this.musicModel.updateOne(
+      { _id: musicId },
+      { $inc: { commentsCount: 1 } },
+    );
+    const updated = await this.musicModel
+      .findById(musicId, "commentsCount")
+      .lean();
 
     return {
       comment,
@@ -441,14 +501,16 @@ export class MusicService {
   async deleteComment(user: IUser, musicId: string, commentId: string) {
     const userId = (user as any)._id.toString();
     const roles = Array.isArray((user as any).roles) ? (user as any).roles : [];
-    const isAdmin = roles.includes(UserRole.Admin) || roles.includes(UserRole.Moderator);
+    const isAdmin =
+      roles.includes(UserRole.Admin) || roles.includes(UserRole.Moderator);
 
     const comment = await this.commentModel.findById(commentId);
-    if (!comment) throw new NotFoundException('Comment not found');
-    if (comment.musicId?.toString?.() !== musicId) throw new NotFoundException('Comment not found');
+    if (!comment) throw new NotFoundException("Comment not found");
+    if (comment.musicId?.toString?.() !== musicId)
+      throw new NotFoundException("Comment not found");
 
     if (!isAdmin && comment.userId?.toString?.() !== userId) {
-      throw new ForbiddenException('You can only delete your own comment');
+      throw new ForbiddenException("You can only delete your own comment");
     }
 
     await this.commentModel.deleteOne({ _id: commentId });
@@ -456,7 +518,9 @@ export class MusicService {
       { _id: musicId, commentsCount: { $gt: 0 } },
       { $inc: { commentsCount: -1 } },
     );
-    const updated = await this.musicModel.findById(musicId, 'commentsCount').lean();
+    const updated = await this.musicModel
+      .findById(musicId, "commentsCount")
+      .lean();
     return {
       deleted: true,
       commentsCount: (updated as any)?.commentsCount ?? 0,
@@ -465,13 +529,15 @@ export class MusicService {
 
   async deleteMusicAsAdmin(musicId: string) {
     const music = await this.musicModel.findById(musicId);
-    if (!music) throw new NotFoundException('Music item not found');
+    if (!music) throw new NotFoundException("Music item not found");
 
     await this._deletePhysicalMedia((music as any).mediaUrl);
 
     const thumbnailUrl = (music as any).thumbnailUrl;
     if (thumbnailUrl) {
-      const mediaPublicId = this._extractCloudinaryPublicId((music as any).mediaUrl);
+      const mediaPublicId = this._extractCloudinaryPublicId(
+        (music as any).mediaUrl,
+      );
       const thumbPublicId = this._extractCloudinaryPublicId(thumbnailUrl);
       if (!mediaPublicId || !thumbPublicId || mediaPublicId !== thumbPublicId) {
         await this._deletePhysicalMedia(thumbnailUrl);
@@ -489,25 +555,31 @@ export class MusicService {
   }
 
   async deleteMusic(user: IUser, musicId: string) {
-    const userId = ((user as any)?._id ?? '').toString();
+    const userId = ((user as any)?._id ?? "").toString();
     if (!userId) {
-      throw new ForbiddenException('Invalid user');
+      throw new ForbiddenException("Invalid user");
     }
     const rolesRaw = (user as any).roles;
-    const roles = Array.isArray(rolesRaw) ? rolesRaw.map((r: any) => (r?.toString?.() ?? r).toString()) : [];
-    const isAdmin = roles.includes(UserRole.Admin) || roles.includes(UserRole.Moderator);
+    const roles = Array.isArray(rolesRaw)
+      ? rolesRaw.map((r: any) => (r?.toString?.() ?? r).toString())
+      : [];
+    const isAdmin =
+      roles.includes(UserRole.Admin) || roles.includes(UserRole.Moderator);
 
     const music = await this.musicModel.findById(musicId);
-    if (!music) throw new NotFoundException('Music item not found');
+    if (!music) throw new NotFoundException("Music item not found");
 
     const uploaderField = (music as any).uploaderId;
     const isOwner =
       uploaderField?.equals?.(userId) === true ||
       (uploaderField?.toString?.() ?? uploaderField)?.toString?.() === userId;
-    const uploaderDataId = (music as any).uploaderData?._id?.toString?.() ?? (music as any).uploaderData?._id;
-    const isOwnerByData = uploaderDataId != null && uploaderDataId.toString() === userId;
+    const uploaderDataId =
+      (music as any).uploaderData?._id?.toString?.() ??
+      (music as any).uploaderData?._id;
+    const isOwnerByData =
+      uploaderDataId != null && uploaderDataId.toString() === userId;
     if (!isAdmin && !(isOwner || isOwnerByData)) {
-      throw new ForbiddenException('You can only delete your own upload');
+      throw new ForbiddenException("You can only delete your own upload");
     }
 
     await this._deletePhysicalMedia((music as any).mediaUrl);
@@ -515,7 +587,9 @@ export class MusicService {
     // Delete thumbnail if it exists
     const thumbnailUrl = (music as any).thumbnailUrl;
     if (thumbnailUrl) {
-      const mediaPublicId = this._extractCloudinaryPublicId((music as any).mediaUrl);
+      const mediaPublicId = this._extractCloudinaryPublicId(
+        (music as any).mediaUrl,
+      );
       const thumbPublicId = this._extractCloudinaryPublicId(thumbnailUrl);
       if (!mediaPublicId || !thumbPublicId || mediaPublicId !== thumbPublicId) {
         await this._deletePhysicalMedia(thumbnailUrl);
@@ -536,23 +610,24 @@ export class MusicService {
   private async _deletePhysicalMedia(mediaUrl: string) {
     try {
       await this.fileUploader.deleteByUrl(mediaUrl);
-    } catch (_) { }
+    } catch (_) {}
   }
 
   async incrementPlays(user: IUser, id: string): Promise<IMusic> {
     const doc = await this.musicModel.findById(id);
     if (!doc) {
-      throw new NotFoundException('Music item not found');
+      throw new NotFoundException("Music item not found");
     }
 
-    const userId = ((user as any)?._id ?? '').toString();
+    const userId = ((user as any)?._id ?? "").toString();
     const uploaderField = (doc as any).uploaderId;
     const uploaderId = uploaderField?.toString?.() ?? uploaderField;
     const uploaderDataId =
-      (doc as any).uploaderData?._id?.toString?.() ?? (doc as any).uploaderData?._id;
+      (doc as any).uploaderData?._id?.toString?.() ??
+      (doc as any).uploaderData?._id;
     const isOwner =
       !!userId &&
-      (((uploaderId?.toString?.() ?? uploaderId)?.toString?.() === userId) ||
+      ((uploaderId?.toString?.() ?? uploaderId)?.toString?.() === userId ||
         (uploaderDataId != null && uploaderDataId.toString() === userId));
 
     if (isOwner) {
@@ -565,7 +640,7 @@ export class MusicService {
       { new: true },
     );
     if (!updated) {
-      throw new NotFoundException('Music item not found');
+      throw new NotFoundException("Music item not found");
     }
     return updated;
   }
@@ -573,16 +648,17 @@ export class MusicService {
   async initiateSupport(user: IUser, musicId: string, body: any) {
     const amount = Math.floor(Number(body?.amount || 0));
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('amount must be > 0');
+      throw new BadRequestException("amount must be > 0");
     }
 
     const music = await this.musicModel.findById(musicId);
-    if (!music) throw new NotFoundException('Music item not found');
+    if (!music) throw new NotFoundException("Music item not found");
 
     const senderId = (user as any)._id.toString();
     const receiverId = music.uploaderId?.toString();
-    if (!receiverId) throw new BadRequestException('Invalid receiver');
-    if (receiverId === senderId) throw new BadRequestException('You cannot support your own music');
+    if (!receiverId) throw new BadRequestException("Invalid receiver");
+    if (receiverId === senderId)
+      throw new BadRequestException("You cannot support your own music");
 
     const accountReference = `MUS-${music._id.toString()}`;
 
@@ -591,9 +667,9 @@ export class MusicService {
       musicId: music._id,
       senderId,
       receiverId,
-      currency: 'KES',
+      currency: "KES",
       amountKes: amount,
-      status: 'pending',
+      status: "pending",
       accountReference,
     });
 
@@ -601,20 +677,20 @@ export class MusicService {
       await this.userService.subtractFromBalanceAtomic(senderId, amount);
     } catch (e) {
       await this.supportModel.findByIdAndUpdate(support._id, {
-        status: 'failed',
+        status: "failed",
       });
       throw e;
     }
 
     await this.userService.addToBalance(receiverId, amount);
     await this.supportModel.findByIdAndUpdate(support._id, {
-      status: 'success',
+      status: "success",
       creditedAt: new Date(),
     });
 
     return {
       supportId: support._id.toString(),
-      status: 'success',
+      status: "success",
       amountKes: amount,
     };
   }
@@ -622,17 +698,19 @@ export class MusicService {
   async getPublicMusic(id: string) {
     const doc = await this.musicModel
       .findById(id)
-      .select('title genre mediaUrl mediaType mimeType thumbnailUrl uploaderData createdAt')
+      .select(
+        "title genre mediaUrl mediaType mimeType thumbnailUrl uploaderData createdAt",
+      )
       .lean();
-    if (!doc) throw new NotFoundException('Music item not found');
+    if (!doc) throw new NotFoundException("Music item not found");
 
     const fallbackThumbnail =
-      (doc as any).mediaType === 'video' && !(doc as any).thumbnailUrl
+      (doc as any).mediaType === "video" && !(doc as any).thumbnailUrl
         ? this._buildCloudinaryVideoThumbnailUrl((doc as any).mediaUrl)
         : null;
 
     const playUrl =
-      (doc as any).mediaType === 'video'
+      (doc as any).mediaType === "video"
         ? this._buildSignedCloudinaryH264Mp4Url((doc as any).mediaUrl)
         : null;
 
@@ -645,21 +723,21 @@ export class MusicService {
       mediaType: (doc as any).mediaType,
       mimeType: (doc as any).mimeType,
       thumbnailUrl: (doc as any).thumbnailUrl ?? fallbackThumbnail ?? null,
-      uploaderName: (doc as any).uploaderData?.fullName ?? '',
-      uploaderImage: (doc as any).uploaderData?.userImage ?? '',
+      uploaderName: (doc as any).uploaderData?.fullName ?? "",
+      uploaderImage: (doc as any).uploaderData?.userImage ?? "",
       createdAt: (doc as any).createdAt,
     };
   }
 
   private _buildSignedCloudinaryH264Mp4Url(mediaUrl: string): string | null {
     try {
-      if (!mediaUrl || typeof mediaUrl !== 'string') return null;
-      if (!mediaUrl.startsWith('http')) return null;
+      if (!mediaUrl || typeof mediaUrl !== "string") return null;
+      if (!mediaUrl.startsWith("http")) return null;
       const u = new URL(mediaUrl);
-      if (!u.hostname.includes('res.cloudinary.com')) return null;
+      if (!u.hostname.includes("res.cloudinary.com")) return null;
 
-      const parts = u.pathname.split('/').filter(Boolean);
-      const uploadIndex = parts.indexOf('upload');
+      const parts = u.pathname.split("/").filter(Boolean);
+      const uploadIndex = parts.indexOf("upload");
       if (uploadIndex === -1) return null;
 
       // After /upload/ we may have version: v123...
@@ -670,15 +748,21 @@ export class MusicService {
           : afterUpload;
       if (withoutVersion.length === 0) return null;
 
-      const publicIdWithExt = withoutVersion.join('/');
-      const publicId = publicIdWithExt.replace(/\.[^./]+$/, '');
+      const publicIdWithExt = withoutVersion.join("/");
+      const publicId = publicIdWithExt.replace(/\.[^./]+$/, "");
 
       // Signed transformation: MP4 container + H.264 video + AAC audio
       return cloudinary.url(publicId, {
-        resource_type: 'video',
+        resource_type: "video",
         secure: true,
         sign_url: true,
-        transformation: [{ fetch_format: 'mp4', video_codec: 'h264', audio_codec: 'aac' } as any],
+        transformation: [
+          {
+            fetch_format: "mp4",
+            video_codec: "h264",
+            audio_codec: "aac",
+          } as any,
+        ],
       } as any);
     } catch (_) {
       return null;
@@ -687,17 +771,19 @@ export class MusicService {
 
   private _buildCloudinaryVideoThumbnailUrl(mediaUrl: string): string | null {
     try {
-      if (!mediaUrl || typeof mediaUrl !== 'string') return null;
-      if (!mediaUrl.startsWith('http')) return null;
+      if (!mediaUrl || typeof mediaUrl !== "string") return null;
+      if (!mediaUrl.startsWith("http")) return null;
       const u = new URL(mediaUrl);
-      if (!u.hostname.includes('res.cloudinary.com')) return null;
-      const idx = u.pathname.indexOf('/upload/');
+      if (!u.hostname.includes("res.cloudinary.com")) return null;
+      const idx = u.pathname.indexOf("/upload/");
       if (idx === -1) return null;
 
-      const prefix = `${u.origin}${u.pathname.substring(0, idx + '/upload/'.length)}`;
-      const tail = u.pathname.substring(idx + '/upload/'.length).replace(/^\/+/, '');
-      const jpgTail = tail.replace(/\.[^./]+$/, '.jpg');
-      const transform = 'so_1,w_640,h_360,c_fill,f_jpg';
+      const prefix = `${u.origin}${u.pathname.substring(0, idx + "/upload/".length)}`;
+      const tail = u.pathname
+        .substring(idx + "/upload/".length)
+        .replace(/^\/+/, "");
+      const jpgTail = tail.replace(/\.[^./]+$/, ".jpg");
+      const transform = "so_1,w_640,h_360,c_fill,f_jpg";
       return `${prefix}${transform}/${jpgTail}`;
     } catch (_) {
       return null;
@@ -711,32 +797,32 @@ export class MusicService {
     const artists = await this.musicModel.aggregate([
       {
         $group: {
-          _id: '$uploaderId',
-          legacyFullName: { $first: '$uploaderData.fullName' },
-          legacyUserImage: { $first: '$uploaderData.userImage' },
+          _id: "$uploaderId",
+          legacyFullName: { $first: "$uploaderData.fullName" },
+          legacyUserImage: { $first: "$uploaderData.userImage" },
           contentCount: { $sum: 1 },
         },
       },
       {
         $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'user',
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "user",
         },
       },
       {
         $unwind: {
-          path: '$user',
+          path: "$user",
           preserveNullAndEmptyArrays: true,
         },
       },
       {
         $addFields: {
-          fullName: { $ifNull: ['$user.fullName', '$legacyFullName'] },
-          userImage: { $ifNull: ['$user.userImage', '$legacyUserImage'] },
+          fullName: { $ifNull: ["$user.fullName", "$legacyFullName"] },
+          userImage: { $ifNull: ["$user.userImage", "$legacyUserImage"] },
           userImageUpdatedAt: {
-            $ifNull: ['$user.updatedAt', null],
+            $ifNull: ["$user.updatedAt", null],
           },
         },
       },
@@ -758,13 +844,13 @@ export class MusicService {
 
   private _extractCloudinaryPublicId(url: string): string | null {
     try {
-      if (!url || typeof url !== 'string') return null;
-      if (!url.includes('res.cloudinary.com')) return null;
+      if (!url || typeof url !== "string") return null;
+      if (!url.includes("res.cloudinary.com")) return null;
       const u = new URL(url);
-      const pathname = u.pathname || '';
-      const parts = pathname.split('/upload/');
+      const pathname = u.pathname || "";
+      const parts = pathname.split("/upload/");
       if (parts.length < 2) return null;
-      let tail = parts[1].replace(/^\/+/, '');
+      let tail = parts[1].replace(/^\/+/, "");
 
       const versionRegex = /\/v\d+\//g;
       let match: RegExpExecArray | null;
@@ -778,10 +864,61 @@ export class MusicService {
         tail = tail.substring(lastIndex + lastLen);
       }
 
-      tail = tail.replace(/\.[^./]+$/, '');
+      tail = tail.replace(/\.[^./]+$/, "");
       return tail || null;
     } catch (_) {
       return null;
     }
+  }
+
+  async logPlayHistory(user: any, musicId: string) {
+    // 1. Log it in the user's personal history
+    const historyRecord = await this.musicHistoryModel.create({
+      userId: user._id,
+      musicId: musicId,
+    });
+
+    // 2. Increment the global playsCount on your existing MusicSchema!
+    await this.musicModel.findByIdAndUpdate(musicId, {
+      $inc: { playsCount: 1 },
+    });
+
+    return historyRecord;
+  }
+
+  async getUserHistory(user: any, limit: number = 20) {
+    const history = await this.musicHistoryModel
+      .find({ userId: user._id })
+      .sort({ playedAt: -1 })
+      .limit(limit)
+      .populate("musicId") // Pulls in the full music details (title, mediaUrl, etc.)
+      .lean();
+
+    // Map it to return a clean array of the music objects
+    return history.map((h) => h.musicId).filter(Boolean);
+  }
+
+  // --- Queue / Scheduling System ---
+  async syncQueue(user: any, trackIds: string[]) {
+    // This uses upsert: if the user doesn't have a queue document yet, it creates one.
+    // If they do, it overwrites the 'upNext' array with the new schedule.
+    const updatedQueue = await this.musicQueueModel
+      .findOneAndUpdate(
+        { userId: user._id },
+        { $set: { upNext: trackIds } },
+        { new: true, upsert: true },
+      )
+      .populate("upNext");
+
+    return updatedQueue.upNext;
+  }
+
+  async getQueue(user: any) {
+    const queue = await this.musicQueueModel
+      .findOne({ userId: user._id })
+      .populate("upNext")
+      .lean();
+
+    return queue ? queue.upNext : [];
   }
 }

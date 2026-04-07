@@ -80,6 +80,7 @@ import { MarketplaceListingsModule } from "./api/marketplace/marketplace_listing
 import { UserFollowModule } from "./api/user_modules/user_follow/user_follow.module";
 import { PostModule } from "./api/post_module/post.module";
 import { DiscoveryModule } from "./api/DiscoveryModule/discovery.module";
+import { ReelModule } from "./api/reel/reel.module";
 
 @Module({
   imports: [
@@ -167,6 +168,7 @@ import { DiscoveryModule } from "./api/DiscoveryModule/discovery.module";
     MarketplaceListingsModule,
     PostModule,
     DiscoveryModule,
+    ReelModule,
   ],
   controllers: [AppController, MediaProxyController],
   providers: [
