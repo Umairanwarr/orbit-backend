@@ -81,6 +81,9 @@ import { UserFollowModule } from "./api/user_modules/user_follow/user_follow.mod
 import { PostModule } from "./api/post_module/post.module";
 import { DiscoveryModule } from "./api/DiscoveryModule/discovery.module";
 import { ReelModule } from "./api/reel/reel.module";
+import { WalletModule } from "./api/payments/pesapal/wallet/wallet.module";
+import { AdminModerationModule } from "./api/admin_panel/moderation/admin_moderation.module";
+import { TicketingModule } from "./api/ticketing/ticketing.module";
 
 @Module({
   imports: [
@@ -169,6 +172,9 @@ import { ReelModule } from "./api/reel/reel.module";
     PostModule,
     DiscoveryModule,
     ReelModule,
+    WalletModule,
+    AdminModerationModule,
+    TicketingModule,
   ],
   controllers: [AppController, MediaProxyController],
   providers: [

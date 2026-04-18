@@ -1,5 +1,3 @@
-
-
 import {
   Get,
   Post,
@@ -44,11 +42,16 @@ export class AdminPanelController {
   }
 
   @Patch("/privacy-policy")
-  async updatePrivacyPolicy(@Req() req: any, @Body() body: { privacyPolicyText: string }) {
+  async updatePrivacyPolicy(
+    @Req() req: any,
+    @Body() body: { privacyPolicyText: string },
+  ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
-    return resOK(await this.adminPanelService.updatePrivacyPolicy(body.privacyPolicyText));
+    return resOK(
+      await this.adminPanelService.updatePrivacyPolicy(body.privacyPolicyText),
+    );
   }
 
   @Get("/privacy-policy")
@@ -57,11 +60,16 @@ export class AdminPanelController {
   }
 
   @Patch("/admin-password")
-  async updateAdminPassword(@Req() req: any, @Body() body: { newPassword: string }) {
+  async updateAdminPassword(
+    @Req() req: any,
+    @Body() body: { newPassword: string },
+  ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
-    return resOK(await this.adminPanelService.updateAdminPassword(body.newPassword));
+    return resOK(
+      await this.adminPanelService.updateAdminPassword(body.newPassword),
+    );
   }
 
   @Patch("/versions")
@@ -77,7 +85,7 @@ export class AdminPanelController {
   async createNotifications(
     @Req() req: any,
     @Body() dto: CreateAdminNotificationDto,
-    @UploadedFile() file?: any
+    @UploadedFile() file?: any,
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -94,20 +102,23 @@ export class AdminPanelController {
   }
 
   // Live watermark management
-  @Post('/live-watermark')
+  @Post("/live-watermark")
   @UseInterceptors(imageFileInterceptor)
-  async setLiveWatermark(@Req() req: any, @UploadedFile() file?: Express.Multer.File) {
+  async setLiveWatermark(
+    @Req() req: any,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
     if (!file) {
-      throw new Error('Watermark image file is required');
+      throw new Error("Watermark image file is required");
     }
     const url = await this.adminPanelService.setLiveWatermark(file);
     return resOK({ liveWatermarkUrl: url });
   }
 
-  @Delete('/live-watermark')
+  @Delete("/live-watermark")
   async deleteLiveWatermark(@Req() req: any) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -153,14 +164,14 @@ export class AdminPanelController {
   async getUserChatsMessages(
     @Param() roomIdDto: MongoRoomIdDto,
     @Query() filter: Object,
-    @Param() userId: MongoIdDto
+    @Param() userId: MongoIdDto,
   ) {
     return resOK(
       await this.adminPanelService.getUserChatsMessages(
         userId.id,
         roomIdDto.roomId,
-        filter
-      )
+        filter,
+      ),
     );
   }
 
@@ -168,7 +179,7 @@ export class AdminPanelController {
   async updateUserInfo(
     @Req() req: any,
     @Param() dto: MongoIdDto,
-    @Body() body: object
+    @Body() body: object,
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -180,7 +191,7 @@ export class AdminPanelController {
   async updateUserRole(
     @Req() req: any,
     @Param() dto: MongoIdDto,
-    @Body() body: { roles: UserRole[] } // Expect an array of roles from frontend
+    @Body() body: { roles: UserRole[] }, // Expect an array of roles from frontend
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -208,7 +219,7 @@ export class AdminPanelController {
   @Patch("/user/ban/:id")
   async banUser(
     @Param("id") id: string,
-    @Body() body: { type: "general" | "message" | "live"; until: Date }
+    @Body() body: { type: "general" | "message" | "live"; until: Date },
   ) {
     return resOK(await this.adminPanelService.banUser(id, body));
   }
@@ -216,12 +227,12 @@ export class AdminPanelController {
   @Patch("/user/unban/:id")
   async unbanUser(
     @Param("id") id: string,
-    @Body() body: { type: "general" | "message" | "live" }
+    @Body() body: { type: "general" | "message" | "live" },
   ) {
     return resOK(await this.adminPanelService.unbanUser(id, body));
   }
 
-  @Patch('/drivers/:id/ride-ban')
+  @Patch("/drivers/:id/ride-ban")
   async banDriverFromRide(
     @Req() req: any,
     @Param() dto: MongoIdDto,
@@ -233,11 +244,8 @@ export class AdminPanelController {
     return resOK(await this.adminPanelService.banDriverFromRide(dto.id, body));
   }
 
-  @Patch('/drivers/:id/ride-unban')
-  async unbanDriverFromRide(
-    @Req() req: any,
-    @Param() dto: MongoIdDto,
-  ) {
+  @Patch("/drivers/:id/ride-unban")
+  async unbanDriverFromRide(@Req() req: any, @Param() dto: MongoIdDto) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
@@ -274,42 +282,66 @@ export class AdminPanelController {
     return resOK(await this.adminPanelService.getUserReports(filter));
   }
 
-  @Get('/marketplace/listings/reports')
+  @Get("/marketplace/listings/reports")
   async getMarketplaceListingReports(@Query() filter: Object) {
-    return resOK(await this.adminPanelService.getMarketplaceListingReports(filter));
+    return resOK(
+      await this.adminPanelService.getMarketplaceListingReports(filter),
+    );
   }
 
-  @Post('/marketplace/listings/reports/:id/ignore')
-  async ignoreMarketplaceListingReport(@Req() req: any, @Param() dto: MongoIdDto) {
+  @Post("/marketplace/listings/reports/:id/ignore")
+  async ignoreMarketplaceListingReport(
+    @Req() req: any,
+    @Param() dto: MongoIdDto,
+  ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
     return resOK(
-      await this.adminPanelService.ignoreMarketplaceListingReport(dto.id, req.user?._id),
+      await this.adminPanelService.ignoreMarketplaceListingReport(
+        dto.id,
+        req.user?._id,
+      ),
     );
   }
 
-  @Post('/marketplace/listings/reports/:id/remove')
-  async removeMarketplaceListingByReport(@Req() req: any, @Param() dto: MongoIdDto) {
+  @Post("/marketplace/listings/reports/:id/remove")
+  async removeMarketplaceListingByReport(
+    @Req() req: any,
+    @Param() dto: MongoIdDto,
+  ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
     return resOK(
-      await this.adminPanelService.removeMarketplaceListingByReport(dto.id, req.user?._id),
+      await this.adminPanelService.removeMarketplaceListingByReport(
+        dto.id,
+        req.user?._id,
+      ),
     );
   }
 
-  @Get('/marketplace/listings/sold-out')
+  @Get("/marketplace/listings/sold-out")
   async getMarketplaceSoldOutListings(@Query() filter: Object) {
-    return resOK(await this.adminPanelService.getMarketplaceSoldOutListings(filter));
+    return resOK(
+      await this.adminPanelService.getMarketplaceSoldOutListings(filter),
+    );
   }
 
-  @Patch('/marketplace/listings/:id/release-payment')
-  async releaseMarketplaceSoldPayment(@Req() req: any, @Param() dto: MongoIdDto) {
+  @Patch("/marketplace/listings/:id/release-payment")
+  async releaseMarketplaceSoldPayment(
+    @Req() req: any,
+    @Param() dto: MongoIdDto,
+  ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
-    return resOK(await this.adminPanelService.releaseMarketplaceSoldPayment(dto.id, req.user?._id));
+    return resOK(
+      await this.adminPanelService.releaseMarketplaceSoldPayment(
+        dto.id,
+        req.user?._id,
+      ),
+    );
   }
 
   @Delete("/users/reports/:id")
@@ -333,12 +365,12 @@ export class AdminPanelController {
     return resOK(await this.adminPanelService.deleteGroup(dto.id));
   }
 
-  @Get('/groups-channels')
+  @Get("/groups-channels")
   async getGroupsChannels(@Query() filter: Object) {
     return resOK(await this.adminPanelService.getGroupsChannels(filter));
   }
 
-  @Delete('/groups-channels/:id')
+  @Delete("/groups-channels/:id")
   async deleteGroupsChannels(@Req() req: any, @Param() dto: MongoIdDto) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -373,7 +405,7 @@ export class AdminPanelController {
   @Post("/live-categories")
   async createLiveCategory(
     @Req() req: any,
-    @Body() body: { name: string; description?: string; isActive?: boolean }
+    @Body() body: { name: string; description?: string; isActive?: boolean },
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -385,7 +417,7 @@ export class AdminPanelController {
   async updateLiveCategory(
     @Req() req: any,
     @Param() dto: MongoIdDto,
-    @Body() body: { name?: string; description?: string; isActive?: boolean }
+    @Body() body: { name?: string; description?: string; isActive?: boolean },
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -423,7 +455,7 @@ export class AdminPanelController {
       price: number;
       isActive?: boolean;
     },
-    @UploadedFile() file?: Express.Multer.File
+    @UploadedFile() file?: Express.Multer.File,
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -443,7 +475,7 @@ export class AdminPanelController {
       price?: number;
       isActive?: boolean;
     },
-    @UploadedFile() file?: Express.Multer.File
+    @UploadedFile() file?: Express.Multer.File,
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -460,63 +492,80 @@ export class AdminPanelController {
   }
 
   // ================= Verification Applications =================
-  @Get('/verification-applications')
+  @Get("/verification-applications")
   async getVerificationApplications(@Query() filter: Object) {
-    return resOK(await this.adminPanelService.getVerificationApplications(filter));
+    return resOK(
+      await this.adminPanelService.getVerificationApplications(filter),
+    );
   }
 
-  @Get('/verification-applications/:id')
+  @Get("/verification-applications/:id")
   async getVerificationApplicationById(@Param() dto: MongoIdDto) {
-    return resOK(await this.adminPanelService.getVerificationApplicationById(dto.id));
+    return resOK(
+      await this.adminPanelService.getVerificationApplicationById(dto.id),
+    );
   }
 
-  @Patch('/verification-applications/:id/review')
+  @Patch("/verification-applications/:id/review")
   async reviewVerificationApplication(
     @Req() req: any,
     @Param() dto: MongoIdDto,
-    @Body() body: { status: 'approved' | 'rejected'; note?: string }
+    @Body() body: { status: "approved" | "rejected"; note?: string },
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
     // reviewerId is not bound to an admin user entity; use a placeholder or extend guard to attach user info if needed
-    const reviewerId = 'admin';
-    return resOK(await this.adminPanelService.reviewVerificationApplication(dto.id, body, reviewerId));
+    const reviewerId = "admin";
+    return resOK(
+      await this.adminPanelService.reviewVerificationApplication(
+        dto.id,
+        body,
+        reviewerId,
+      ),
+    );
   }
 
-  @Delete('/verification-applications/:id')
-  async deleteVerificationApplication(@Req() req: any, @Param() dto: MongoIdDto) {
-    if (req["isViewer"]) {
-      return resOK("YOU ARE VIEWER !!!");
-    }
-    return resOK(await this.adminPanelService.deleteVerificationApplication(dto.id));
-  }
-
-  // ================= Ads Management =================
-  @Get('/ads')
-  async getAds(@Query() filter: Object) {
-    return resOK(await this.adminPanelService.getAds(filter));
-  }
-
-  @Get('/ads/:id')
-  async getAdById(@Param() dto: MongoIdDto) {
-    return resOK(await this.adminPanelService.getAdById(dto.id));
-  }
-
-  @Patch('/ads/:id/review')
-  async reviewAd(
+  @Delete("/verification-applications/:id")
+  async deleteVerificationApplication(
     @Req() req: any,
     @Param() dto: MongoIdDto,
-    @Body() body: { status: 'approved' | 'rejected'; note?: string }
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
-    const reviewerId = 'admin';
-    return resOK(await this.adminPanelService.reviewAd(dto.id, body, reviewerId));
+    return resOK(
+      await this.adminPanelService.deleteVerificationApplication(dto.id),
+    );
   }
 
-  @Delete('/ads/:id')
+  // ================= Ads Management =================
+  @Get("/ads")
+  async getAds(@Query() filter: Object) {
+    return resOK(await this.adminPanelService.getAds(filter));
+  }
+
+  @Get("/ads/:id")
+  async getAdById(@Param() dto: MongoIdDto) {
+    return resOK(await this.adminPanelService.getAdById(dto.id));
+  }
+
+  @Patch("/ads/:id/review")
+  async reviewAd(
+    @Req() req: any,
+    @Param() dto: MongoIdDto,
+    @Body() body: { status: "approved" | "rejected"; note?: string },
+  ) {
+    if (req["isViewer"]) {
+      return resOK("YOU ARE VIEWER !!!");
+    }
+    const reviewerId = "admin";
+    return resOK(
+      await this.adminPanelService.reviewAd(dto.id, body, reviewerId),
+    );
+  }
+
+  @Delete("/ads/:id")
   async deleteAd(@Req() req: any, @Param() dto: MongoIdDto) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -525,12 +574,12 @@ export class AdminPanelController {
   }
 
   // ================= Music Content =================
-  @Get('/music')
+  @Get("/music")
   async getMusic(@Query() filter: Object) {
     return resOK(await this.adminPanelService.getMusic(filter));
   }
 
-  @Delete('/music/:id')
+  @Delete("/music/:id")
   async deleteMusic(@Req() req: any, @Param() dto: MongoIdDto) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -538,18 +587,18 @@ export class AdminPanelController {
     return resOK(await this.adminPanelService.deleteMusic(dto.id));
   }
 
-  @Get('/music/reports')
+  @Get("/music/reports")
   async getMusicReports(@Query() filter: Object) {
     return resOK(await this.adminPanelService.getMusicReports(filter));
   }
 
   // ================= Articles Content =================
-  @Get('/articles')
+  @Get("/articles")
   async getArticles(@Query() filter: Object) {
     return resOK(await this.adminPanelService.getArticles(filter));
   }
 
-  @Delete('/articles/:id')
+  @Delete("/articles/:id")
   async deleteArticle(@Req() req: any, @Param() dto: MongoIdDto) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -557,60 +606,72 @@ export class AdminPanelController {
     return resOK(await this.adminPanelService.deleteArticle(dto.id));
   }
 
-  @Get('/articles/reports')
+  @Get("/articles/reports")
   async getArticleReports(@Query() filter: Object) {
     return resOK(await this.adminPanelService.getArticleReports(filter));
   }
 
   // ================= Driver Applications =================
-  @Get('/driver-applications')
+  @Get("/driver-applications")
   async getDriverApplications(@Query() filter: Object) {
     return resOK(await this.adminPanelService.getDriverApplications(filter));
   }
 
-  @Get('/driver-applications/:id')
+  @Get("/driver-applications/:id")
   async getDriverApplicationById(@Param() dto: MongoIdDto) {
     return resOK(await this.adminPanelService.getDriverApplicationById(dto.id));
   }
 
-  @Patch('/driver-applications/:id/review')
+  @Patch("/driver-applications/:id/review")
   async reviewDriverApplication(
     @Req() req: any,
     @Param() dto: MongoIdDto,
-    @Body() body: { status: 'approved' | 'rejected'; note?: string }
+    @Body() body: { status: "approved" | "rejected"; note?: string },
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
-    const reviewerId = 'admin';
-    return resOK(await this.adminPanelService.reviewDriverApplication(dto.id, body, reviewerId));
+    const reviewerId = "admin";
+    return resOK(
+      await this.adminPanelService.reviewDriverApplication(
+        dto.id,
+        body,
+        reviewerId,
+      ),
+    );
   }
 
   // ================= Seller Applications =================
-  @Get('/seller-applications')
+  @Get("/seller-applications")
   async getSellerApplications(@Query() filter: Object) {
     return resOK(await this.adminPanelService.getSellerApplications(filter));
   }
 
-  @Get('/seller-applications/:id')
+  @Get("/seller-applications/:id")
   async getSellerApplicationById(@Param() dto: MongoIdDto) {
     return resOK(await this.adminPanelService.getSellerApplicationById(dto.id));
   }
 
-  @Patch('/seller-applications/:id/review')
+  @Patch("/seller-applications/:id/review")
   async reviewSellerApplication(
     @Req() req: any,
     @Param() dto: MongoIdDto,
-    @Body() body: { status: 'approved' | 'rejected'; note?: string }
+    @Body() body: { status: "approved" | "rejected"; note?: string },
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
-    const reviewerId = 'admin';
-    return resOK(await this.adminPanelService.reviewSellerApplication(dto.id, body, reviewerId));
+    const reviewerId = "admin";
+    return resOK(
+      await this.adminPanelService.reviewSellerApplication(
+        dto.id,
+        body,
+        reviewerId,
+      ),
+    );
   }
 
-  @Delete('/seller-applications/:id')
+  @Delete("/seller-applications/:id")
   async deleteSellerApplication(@Req() req: any, @Param() dto: MongoIdDto) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
@@ -619,31 +680,37 @@ export class AdminPanelController {
   }
 
   // ================= Withdraw Requests =================
-  @Get('/withdraw-requests')
+  @Get("/withdraw-requests")
   async getWithdrawRequests(@Query() filter: Object) {
     return resOK(await this.adminPanelService.getWithdrawRequests(filter));
   }
 
-  @Get('/withdraw-requests/:id')
+  @Get("/withdraw-requests/:id")
   async getWithdrawRequestById(@Param() dto: MongoIdDto) {
     return resOK(await this.adminPanelService.getWithdrawRequestById(dto.id));
   }
 
-  @Patch('/withdraw-requests/:id/review')
+  @Patch("/withdraw-requests/:id/review")
   async reviewWithdrawRequest(
     @Req() req: any,
     @Param() dto: MongoIdDto,
-    @Body() body: { status: 'approved' | 'rejected'; note?: string }
+    @Body() body: { status: "approved" | "rejected"; note?: string },
   ) {
     if (req["isViewer"]) {
       return resOK("YOU ARE VIEWER !!!");
     }
-    const reviewerId = 'admin';
-    return resOK(await this.adminPanelService.reviewWithdrawRequest(dto.id, body, reviewerId));
+    const reviewerId = "admin";
+    return resOK(
+      await this.adminPanelService.reviewWithdrawRequest(
+        dto.id,
+        body,
+        reviewerId,
+      ),
+    );
   }
 
   // ================= Emergency Contacts =================
-  @Get('/emergency-contacts')
+  @Get("/emergency-contacts")
   async getEmergencyContacts(@Query() filter: Object) {
     return resOK(await this.adminPanelService.getEmergencyContacts(filter));
   }
