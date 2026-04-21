@@ -78,6 +78,8 @@ import { WithdrawRequestsModule } from './api/wallet/withdraw_requests.module';
 import { MusicModule } from './api/music/music.module';
 import { ArticlesModule } from './api/articles/articles.module';
 import { MarketplaceListingsModule } from './api/marketplace/marketplace_listings.module';
+import { TicketsModule } from './api/tickets/tickets.module';
+import { PostModule } from './api/posts/post/post.module';
 // PaystackModule removed – replaced by PesapalModule
 import { UserFollowModule } from "./api/user_modules/user_follow/user_follow.module";
 
@@ -165,6 +167,8 @@ import { UserFollowModule } from "./api/user_modules/user_follow/user_follow.mod
         MusicModule,
         ArticlesModule,
         MarketplaceListingsModule,
+        TicketsModule,
+        PostModule,
 
 
     ],

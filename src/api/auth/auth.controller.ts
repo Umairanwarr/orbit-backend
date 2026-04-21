@@ -37,6 +37,8 @@ import { RegisterMethod } from "src/core/utils/enums";
 import { RefreshTokenDto } from "./dto/refresh_token.dto";
 import { TwoFactorCodeDto } from "./dto/two_factor_digit.dto";
 import { TwoFactorLoginDto } from "./dto/two_factor_login.dto";
+import { FirebasePhoneRegisterDto } from "./dto/firebase-phone-register.dto";
+import { FirebasePhoneLoginDto } from "./dto/firebase-phone-login.dto";
 
 @V1Controller("auth")
 export class AuthController {
@@ -384,5 +386,34 @@ export class AuthController {
     }
     // Changed to use link-based reset instead of OTP
     return resOK(await this.authService.resetPasswordWithLink(email, token, newPassword));
+  }
+
+  @Post('/firebase-phone-register')
+  @HttpCode(200)
+  async firebasePhoneRegister(
+    @Body() dto: FirebasePhoneRegisterDto,
+    @IpAddress() ipAddress: any,
+    @IsDevelopment() isDev: boolean
+  ) {
+    if (!dto.idToken || !dto.fullName || !dto.password) {
+      throw new BadRequestException('ID token, full name, and password are required');
+    }
+    dto.deviceInfo = dto.deviceInfo || {};
+    return resOK(await this.authService.firebasePhoneRegister(dto, ipAddress, isDev));
+  }
+
+  @Post('/firebase-phone-login')
+  @HttpCode(200)
+  async firebasePhoneLogin(
+    @Body() dto: FirebasePhoneLoginDto,
+    @IpAddress() ipAddress: any,
+    @IsDevelopment() isDev: boolean
+  ) {
+    if (!dto.idToken || !dto.password) {
+      throw new BadRequestException('ID token and password are required');
+    }
+    dto.ip = ipAddress;
+    dto.deviceInfo = dto.deviceInfo || {};
+    return this.authService.firebasePhoneLogin(dto, isDev);
   }
 }

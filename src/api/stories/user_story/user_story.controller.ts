@@ -96,8 +96,9 @@ export class UserStoryController {
     }
 
     @Get("/me")
-    async myStories(@Req() req: any) {
-        return resOK(await this.userStoryService.myStories(req.user._id));
+    async myStories(@Req() req: any, @Query() dto: object) {
+        const queryParams = dto as any;
+        return resOK(await this.userStoryService.myStories(req.user._id, queryParams.storySource));
     }
     @Delete("/:id")
     async delete(@Param() dto: MongoIdDto, @Req() req: any) {

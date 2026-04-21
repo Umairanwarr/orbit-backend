@@ -207,6 +207,9 @@ export enum SocketEventsType {
   v1OnCallParticipantJoined = "v1OnCallParticipantJoined",
   v1OnIceCandidate = "v1OnIceCandidate",
   v1OnSwitchAudioVideo = "v1OnSwitchAudioVideo",
+  // Screen share events
+  v1OnScreenShareStarted = "v1OnScreenShareStarted",
+  v1OnScreenShareStopped = "v1OnScreenShareStopped",
   // Group/Broadcast message status events
   v1OnGroupMessageStatus = "v1OnGroupMessageStatus",
   v1OnBroadcastMessageStatus = "v1OnBroadcastMessageStatus",
@@ -225,6 +228,9 @@ export enum SocketEventsType {
   // Group/Broadcast message status emitter
   v1GroupMessageStatus = "v1GroupMessageStatus",
   v1BroadcastMessageStatus = "v1BroadcastMessageStatus",
+  // Screen share emitter
+  v1ScreenShareStart = "v1ScreenShareStart",
+  v1ScreenShareStop = "v1ScreenShareStop",
 }
 
 export enum NotificationType {

@@ -3,6 +3,7 @@ import {
     Injectable,
     InternalServerErrorException,
     Logger,
+    NotFoundException,
     OnModuleInit,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -13,6 +14,8 @@ import {
     PesapalTransactionDocument,
 } from "./schemas/pesapal-transaction.schema";
 import { UserService } from "../../user_modules/user/user.service";
+import { IUser } from "../../user_modules/user/entities/user.entity";
+import { PesapalWithdrawDto } from "./dto/pesapal-withdraw.dto";
 
 @Injectable()
 export class PesapalService implements OnModuleInit {
@@ -75,6 +78,7 @@ export class PesapalService implements OnModuleInit {
         @InjectModel(PesapalTransaction.name)
         private readonly txModel: Model<PesapalTransactionDocument>,
         private readonly userService: UserService,
+        @InjectModel("User") private readonly userModel: Model<IUser>,
     ) { }
 
     async onModuleInit() {
@@ -488,7 +492,7 @@ export class PesapalService implements OnModuleInit {
             : 20;
 
         const docs = await this.txModel
-            .find({ userId, type: "TOPUP" })
+            .find({ userId, type: { $in: ["TOPUP", "WITHDRAWAL"] } })
             .sort({ createdAt: -1 })
             .limit(l)
             .lean();
@@ -496,6 +500,7 @@ export class PesapalService implements OnModuleInit {
         return docs.map((d: any) => ({
             id: d._id?.toString?.() ?? d._id,
             amount: d.amount,
+            type: d.type,
             currency: d.currency,
             status: d.status,
             confirmationCode: d.confirmationCode,
@@ -597,6 +602,59 @@ export class PesapalService implements OnModuleInit {
             confirmationCode: saved?.confirmationCode,
             paymentMethod: saved?.paymentMethod,
             paidAt: saved?.paidAt,
+        };
+    }
+
+    async requestWithdrawal(userId: string, dto: PesapalWithdrawDto) {
+        // 1. Fetch the user
+        const user = await this.userModel.findById(userId);
+        if (!user) {
+            throw new NotFoundException("User not found");
+        }
+
+        // 2. Check if the user has enough balance
+        if (user.balance < dto.amount) {
+            throw new BadRequestException(
+                `Insufficient balance. Your current balance is ${user.balance}`,
+            );
+        }
+
+        // 3. Deduct the balance (Using findOneAndUpdate prevents race conditions if they click twice fast)
+        const updatedUser = await this.userModel.findOneAndUpdate(
+            { _id: userId, balance: { $gte: dto.amount } }, // Ensure balance is still enough at the moment of update
+            { $inc: { balance: -dto.amount } }, // Subtract the amount
+            { new: true },
+        );
+
+        if (!updatedUser) {
+            throw new BadRequestException(
+                "Transaction failed. Balance may have changed.",
+            );
+        }
+
+        // 4. Create a Pending Transaction Record in your database
+        const transaction = await this.txModel.create({
+            userId: user._id,
+            type: "WITHDRAWAL",
+            amount: dto.amount,
+            currency: dto.currency,
+            accountReference: dto.accountNumber,
+            description: dto.description || "Wallet withdrawal",
+            status: "pending", // It stays pending until PesaPal confirms or an Admin processes it
+            merchantReference: `WD-${Date.now()}`,
+        });
+
+        // 5. Trigger PesaPal Payout API (Pseudocode)
+        // If you have PesaPal's B2C API enabled, you would make the HTTP call here.
+        // await this.httpService.post('pesapal/b2c/url', { ...data });
+
+        this.logger.log(`Withdrawal of ${dto.amount} initiated for user ${userId}`);
+
+        return {
+            success: true,
+            message: "Withdrawal request submitted successfully",
+            newBalance: updatedUser.balance,
+            transactionId: transaction._id,
         };
     }
 }

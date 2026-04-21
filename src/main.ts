@@ -214,6 +214,23 @@ async function bootstrap() {
     },
   });
 
+  // Serve Android assetlinks.json for Firebase App Check / Play Integrity
+  const httpAdapter = app.getHttpAdapter();
+  httpAdapter.get('/.well-known/assetlinks.json', (req: any, res: any) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send([
+      {
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+          "namespace": "android_app",
+          "package_name": "com.orbit.ke",
+          "sha256_cert_fingerprints":
+            ["6C:90:DC:43:65:98:C2:89:24:27:AD:D6:65:AF:9B:FF:0E:88:19:80:C8:11:4B:FE:84:3D:8F:19:DF:59:9A:DC"]
+        }
+      }
+    ]);
+  });
+
   await app.listen(port);
 
   console.log("app run on port " + port);

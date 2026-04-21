@@ -208,4 +208,8 @@ export class RoomMemberService extends BaseRoomService<IRoomMember> {
       limit,
     });
   }
+
+  async aggregateDirect(stages: any): Promise<any[]> {
+    return this.model.aggregate(stages).exec();
+  }
 }

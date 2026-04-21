@@ -101,7 +101,7 @@ export class SocketIoGateway implements OnGatewayInit, OnGatewayConnection, OnGa
             throw new BadRequestException("while updateRoomMessagesToDeliver roomId is required " + data)
         }
         let needToNotify = await this.socketIoService.updateRoomMessagesToDeliver(roomId, myUser);
-        if (needToNotify.isUpdated) {
+        if (needToNotify.isUpdated && needToNotify.pId) {
             this.io.to(needToNotify.pId.toString()).emit(
                 SocketEventsType.v1OnDeliverChatRoom,
                 JSON.stringify({
@@ -135,7 +135,7 @@ export class SocketIoGateway implements OnGatewayInit, OnGatewayConnection, OnGa
             throw new BadRequestException("while updateRoomMessagesToDeliver roomId is required " + data)
         }
         let needToNotify = await this.socketIoService.updateRoomMessagesToSeen(roomId, myUser);
-        if (needToNotify.isUpdated) {
+        if (needToNotify.isUpdated && needToNotify.pId) {
             this.io.to(needToNotify.pId.toString()).emit(
                 SocketEventsType.v1OnEnterChatRoom,
                 JSON.stringify({
@@ -257,6 +257,75 @@ export class SocketIoGateway implements OnGatewayInit, OnGatewayConnection, OnGa
             this.io.to(roomId.toString()).emit('call_background_share', JSON.stringify(payload));
         } catch (error) {
             console.error('call_background_share handler error:', error);
+        }
+    }
+
+    // Screen Share Handlers
+    @SubscribeMessage(SocketEventsType.v1ScreenShareStart)
+    async screenShareStart(
+        @MessageBody() data: any,
+        @ConnectedSocket() client: Socket,
+    ) {
+        try {
+            let payload: any = data;
+            try {
+                payload = jsonDecoder(data);
+            } catch (_) {
+                payload = data;
+            }
+            const roomId = payload?.roomId || data['roomId'];
+            const callId = payload?.callId || data['callId'];
+            if (!roomId) {
+                throw new BadRequestException('screenShareStart: roomId is required');
+            }
+            const res = {
+                roomId: roomId.toString(),
+                callId: callId?.toString(),
+                userId: client.user._id.toString(),
+                userName: client.user.fullName,
+                startedAt: new Date(),
+            };
+            // Notify all room members except sender
+            client.to(roomId.toString()).emit(
+                SocketEventsType.v1OnScreenShareStarted,
+                JSON.stringify(res),
+            );
+        } catch (error) {
+            console.error('screenShareStart handler error:', error);
+        }
+    }
+
+    @SubscribeMessage(SocketEventsType.v1ScreenShareStop)
+    async screenShareStop(
+        @MessageBody() data: any,
+        @ConnectedSocket() client: Socket,
+    ) {
+        try {
+            let payload: any = data;
+            try {
+                payload = jsonDecoder(data);
+            } catch (_) {
+                payload = data;
+            }
+            const roomId = payload?.roomId || data['roomId'];
+            const callId = payload?.callId || data['callId'];
+            if (!roomId) {
+                throw new BadRequestException('screenShareStop: roomId is required');
+            }
+            const res = {
+                roomId: roomId.toString(),
+                callId: callId?.toString(),
+                userId: client.user._id.toString(),
+                userName: client.user.fullName,
+                stoppedAt: new Date(),
+            };
+            // Notify all room members except sender
+            client.to(roomId.toString()).emit(
+                SocketEventsType.v1OnScreenShareStopped,
+                JSON.stringify(res),
+            );
+        } catch (error) {
+            console.error('screenShareStop handler error:', error);
         }
     }
 

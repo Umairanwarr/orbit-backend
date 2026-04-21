@@ -9,12 +9,15 @@ import {
 } from "./schemas/pesapal-transaction.schema";
 import { AuthModule } from "../../auth/auth.module";
 import { UserModule } from "../../user_modules/user/user.module";
+import { UserSchema } from "../../user_modules/user/entities/user.entity";
+
 
 @Module({
     imports: [
         ConfigModule,
         MongooseModule.forFeature([
             { name: PesapalTransaction.name, schema: PesapalTransactionSchema },
+            { name: "User", schema: UserSchema },
         ]),
         AuthModule,
         UserModule,

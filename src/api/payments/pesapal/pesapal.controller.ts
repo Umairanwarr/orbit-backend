@@ -16,6 +16,7 @@ import { PesapalCheckoutDto } from "./dto/pesapal-checkout.dto";
 import { resOK } from "../../../core/utils/res.helpers";
 import { VerifiedAuthGuard } from "../../../core/guards/verified.auth.guard";
 import { Response } from "express";
+import { PesapalWithdrawDto } from "./dto/pesapal-withdraw.dto";
 
 @V1Controller("payments/pesapal")
 export class PesapalController {
@@ -125,5 +126,15 @@ export class PesapalController {
             isNaN(l) ? 20 : l,
         );
         return resOK(data);
+    }
+
+    @UseGuards(VerifiedAuthGuard)
+    @Post("/withdraw")
+    async withdraw(@Body() dto: PesapalWithdrawDto, @Req() req: any) {
+        const result = await this.pesapalService.requestWithdrawal(
+            req.user?._id?.toString(),
+            dto,
+        );
+        return resOK(result);
     }
 }
