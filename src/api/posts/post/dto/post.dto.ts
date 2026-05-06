@@ -50,6 +50,10 @@ export class UpdatePostDto {
   media?: any;
 
   @IsOptional()
+  @IsArray()
+  mediaUrls?: string[];
+
+  @IsOptional()
   @IsObject()
   location?: any;
 }

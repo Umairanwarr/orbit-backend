@@ -52,6 +52,8 @@ export class PostController {
         uploaderDto.mediaBuffer = file.buffer;
         uploaderDto.fileName = file.originalname;
         uploaderDto.myUser = { _id: userId } as any;
+        // Optimize videos eagerly for posts/reels
+        uploaderDto.optimizeVideoEagerly = true;
         const url = await this.fileUploaderService.uploadChatMedia(uploaderDto);
         uploadedUrls.push(url);
       }

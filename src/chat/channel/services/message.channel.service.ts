@@ -624,9 +624,29 @@ export class MessageChannelService {
             if (!dto._messageAttachment) throw new BadRequestException("for isInfo message we must include _messageAttachment")
             return dto._messageAttachment;
         }
-        if (dto.isText() || dto.forwardLocalId) {
+        if (dto.isText()) {
             return null;
         }
+
+        if (dto.forwardLocalId) {
+            if (dto.forwardLocalId.startsWith("forwarded_")) {
+                // Return provided attachment for cross-room/edited forwards
+                const att = dto.attachment ? jsonDecoder(dto.attachment) : null;
+                if (att) {
+                    // Map client-side 'networkUrl' to server-side 'url' if needed
+                    if (att.networkUrl && !att.url) att.url = att.networkUrl;
+                    
+                    // Handle nested thumbImage for videos
+                    if (att.thumbImage && att.thumbImage.networkUrl && !att.thumbImage.url) {
+                        att.thumbImage.url = att.thumbImage.networkUrl;
+                    }
+                }
+                return att;
+            }
+            return null;
+        }
+
+
 
         if (dto.isCustom()) {
             return jsonDecoder(dto.attachment)

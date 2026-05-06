@@ -7,7 +7,7 @@
 import CommonDto from "../../core/common/dto/common.dto";
 
 export class CreateS3UploaderDto extends CommonDto {
-
   mediaBuffer: Buffer;
   fileName: String;
+  optimizeVideoEagerly?: boolean;
 }

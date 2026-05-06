@@ -38,6 +38,7 @@ import { SocketIoService } from "../../chat/socket_io/socket_io.service";
 import { AuthService } from "../auth/auth.service";
 import { PaginationParameters } from "mongoose-paginate-v2";
 import { NotificationEmitterService } from "../../common/notification_emitter/notification_emitter.service";
+import { NotificationData } from "../../common/notification_emitter/notification.event";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import {
   ChatRequestStatus,
@@ -1366,5 +1367,101 @@ export class ProfileService {
       isClaimed: isClaimed,
       giftMessageId: giftMessageId,
     };
+  }
+
+  async sendMoney(sender: IUser, receiverId: string, amount: number) {
+    const amt = Math.floor(Number(amount || 0));
+    if (!Number.isFinite(amt) || amt <= 0) {
+      throw new BadRequestException('amount must be > 0');
+    }
+    if (!receiverId) {
+      throw new BadRequestException('receiverId is required');
+    }
+
+    const senderId = (sender as any)._id.toString();
+    if (senderId === receiverId) {
+      throw new BadRequestException('You cannot send money to yourself');
+    }
+
+    const receiver = await this.userService.findById(receiverId);
+    if (!receiver) {
+      throw new NotFoundException('Receiver not found');
+    }
+
+    // Atomic subtract from sender (throws if insufficient balance)
+    await this.userService.subtractFromBalanceAtomic(senderId, amt);
+
+    // Credit receiver
+    await this.userService.addToBalance(receiverId, amt);
+
+    // Notify receiver via push
+    void this._notifyReceiverOnMoneyReceived({
+      receiverId,
+      sender,
+      amountKes: amt,
+    });
+
+    const updatedSender = await this.userService.findById(senderId);
+    return {
+      success: true,
+      amountKes: amt,
+      newBalance: (updatedSender as any)?.balance ?? 0,
+      formattedBalance: `KSh ${((updatedSender as any)?.balance ?? 0).toFixed(2)}`,
+    };
+  }
+
+  private async _notifyReceiverOnMoneyReceived(params: {
+    receiverId: string;
+    sender: IUser;
+    amountKes: number;
+  }) {
+    const { receiverId, sender, amountKes } = params;
+    try {
+      const tokens = await this.userDevice.getUserPushTokens(receiverId);
+      if ((tokens?.fcm?.length ?? 0) === 0 && (tokens?.oneSignal?.length ?? 0) === 0) {
+        return;
+      }
+
+      const senderName =
+        ((sender as any)?.fullName ?? '').toString().trim() || 'Someone';
+      const amount = Number(amountKes) || 0;
+      const amountLabel = `KES ${amount.toLocaleString('en-KE')}`;
+
+      const title = 'Money received';
+      const body = `You received ${amountLabel} from ${senderName}`;
+      const data = {
+        type: 'money_received',
+        senderId: ((sender as any)?._id ?? '').toString(),
+        senderName,
+        amountKes: amount.toString(),
+        ts: Date.now().toString(),
+      };
+
+      if (tokens.fcm && tokens.fcm.length) {
+        this.notificationEmitterService.fcmSend(
+          new NotificationData({
+            tokens: tokens.fcm,
+            title,
+            body,
+            tag: 'money_received',
+            data,
+          }),
+        );
+      }
+
+      if (tokens.oneSignal && tokens.oneSignal.length) {
+        this.notificationEmitterService.oneSignalSend(
+          new NotificationData({
+            tokens: tokens.oneSignal,
+            title,
+            body,
+            tag: 'money_received',
+            data,
+          }),
+        );
+      }
+    } catch (e) {
+      console.log('[Profile][MoneyPush] Failed:', (e as any)?.message || e);
+    }
   }
 }

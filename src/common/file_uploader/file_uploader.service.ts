@@ -67,6 +67,7 @@ export class FileUploaderService {
       folder: `${this.cloudinaryBaseFolder}/media/${dto.myUser._id}`,
       publicId,
       resourceType: 'auto',
+      optimizeVideoEagerly: dto.optimizeVideoEagerly,
     });
     return url;
   }
@@ -129,7 +130,7 @@ export class FileUploaderService {
 
   private async _uploadToCloudinary(
     buffer: Buffer,
-    opts: { folder: string; publicId: string; resourceType: 'auto' | 'image' | 'video' | 'raw'; format?: string },
+    opts: { folder: string; publicId: string; resourceType: 'auto' | 'image' | 'video' | 'raw'; format?: string; optimizeVideoEagerly?: boolean },
   ): Promise<string> {
     return await new Promise((resolve, reject) => {
       const useLarge = buffer && buffer.length > 20 * 1024 * 1024;
@@ -138,16 +139,23 @@ export class FileUploaderService {
         ? uploaderAny.upload_large_stream
         : cloudinary.uploader.upload_stream;
 
+      const uploadOpts: any = {
+        folder: opts.folder,
+        public_id: opts.publicId,
+        resource_type: opts.resourceType as any,
+        overwrite: false,
+        unique_filename: false,
+        ...(useLarge ? { chunk_size: 6 * 1024 * 1024 } : {}),
+        ...(opts.format ? { format: opts.format } : {}),
+      };
+
+      if (opts.optimizeVideoEagerly) {
+        uploadOpts.eager = [{ fetch_format: 'mp4', quality: 'auto' }];
+        uploadOpts.eager_async = true;
+      }
+
       const stream = method(
-        {
-          folder: opts.folder,
-          public_id: opts.publicId,
-          resource_type: opts.resourceType as any,
-          overwrite: false,
-          unique_filename: false,
-          ...(useLarge ? { chunk_size: 6 * 1024 * 1024 } : {}),
-          ...(opts.format ? { format: opts.format } : {}),
-        } as any,
+        uploadOpts,
         (error: any, result: any) => {
           if (error) return reject(error);
           return resolve(result?.secure_url || result?.url);

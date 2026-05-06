@@ -28,6 +28,8 @@ export class TicketsService {
       throw new BadRequestException('Invalid expiry date');
     }
 
+    const quantity = Math.max(1, Math.floor(Number(body.quantity || 1)));
+
     // Upload image if provided
     let imageUrl: string | undefined;
     if (file) {
@@ -39,7 +41,12 @@ export class TicketsService {
       priceKes,
       expiryDate,
       imageUrl,
+      category: body.category?.toString().trim() || undefined,
+      quantity,
+      soldCount: 0,
       uploaderId: new Types.ObjectId(userId),
+      isSold: false,
+      buyerIds: [],
     });
     return doc;
   }
@@ -53,9 +60,17 @@ export class TicketsService {
     if (search) {
       q.$text = { $search: search } as any;
     }
-    // By default, only show unsold tickets to buyers
-    if (params.showAll !== 'true') {
-      q.isSold = false;
+    const category = (params.category || '').toString().trim();
+    if (category) {
+      q.category = category;
+    }
+    // By default, show available tickets, plus tickets the viewer owns or bought
+    if (params.showAll !== 'true' && viewerId) {
+      q.$or = [
+        { isSold: false },
+        { uploaderId: new Types.ObjectId(viewerId) },
+        { buyerIds: new Types.ObjectId(viewerId) },
+      ];
     }
 
     const [docs, total] = await Promise.all([
@@ -74,11 +89,17 @@ export class TicketsService {
         // Determine if viewer can see clear image
         const canSeeClearImage = this._canViewImage(t, viewerId);
 
+        const buyerIds = t.buyerIds || [];
+        const isBuyer = viewerId ? buyerIds.some((id: any) =>
+          id?.toString?.() === viewerId,
+        ) : false;
+
         return {
           ...t,
           uploaderName: uploader?.fullName || '',
           uploaderImage: uploader?.userImage || '',
-          // Image is blurred unless viewer is uploader or buyer
+          remaining: Math.max(0, (t.quantity || 1) - (t.soldCount || 0)),
+          isBuyer,
           imageBlurred: t.imageUrl ? !canSeeClearImage : false,
           hasImage: !!t.imageUrl,
         };
@@ -92,8 +113,12 @@ export class TicketsService {
     if (!viewerId) return false;
     // Uploader can always see their image
     if (ticket.uploaderId?.toString?.() === viewerId) return true;
-    // Buyer can see image after purchase
-    if (ticket.isSold && ticket.soldToId?.toString?.() === viewerId) return true;
+    // Any buyer can see image after purchase
+    const buyerIds = ticket.buyerIds || [];
+    const buyerIdStrings = buyerIds.map((id: any) =>
+      id?.toString?.() ?? id?.toString?.() ?? '',
+    );
+    if (buyerIdStrings.includes(viewerId)) return true;
     return false;
   }
 
@@ -116,10 +141,17 @@ export class TicketsService {
 
     const canSeeClearImage = this._canViewImage(ticket, viewerId);
 
+    const buyerIds = ticket.buyerIds || [];
+    const isBuyer = viewerId ? buyerIds.some((id: any) =>
+      id?.toString?.() === viewerId,
+    ) : false;
+
     return {
       ...ticket,
       uploaderName: uploader?.fullName || '',
       uploaderImage: uploader?.userImage || '',
+      remaining: Math.max(0, (ticket.quantity || 1) - (ticket.soldCount || 0)),
+      isBuyer,
       imageBlurred: ticket.imageUrl ? !canSeeClearImage : false,
       hasImage: !!ticket.imageUrl,
     };
@@ -136,6 +168,18 @@ export class TicketsService {
     // Check expiry
     if (ticket.expiryDate < new Date()) {
       throw new BadRequestException('Ticket has expired');
+    }
+
+    // Check quantity available
+    const available = (ticket.quantity || 1) - (ticket.soldCount || 0);
+    if (available <= 0) {
+      throw new BadRequestException('Tickets sold out');
+    }
+
+    // Check if buyer already bought (one ticket per buyer)
+    const buyerIds = ticket.buyerIds || [];
+    if (buyerIds.some((id: any) => id?.toString?.() === buyerId)) {
+      throw new BadRequestException('You already bought this ticket');
     }
 
     // Check buyer balance atomically
@@ -161,10 +205,15 @@ export class TicketsService {
       { new: true },
     ).lean();
 
-    // Mark ticket as sold
-    ticket.isSold = true;
-    ticket.soldToId = new Types.ObjectId(buyerId);
-    ticket.soldAt = new Date();
+    // Update ticket: add buyer, increment soldCount, check if fully sold
+    const newSoldCount = (ticket.soldCount || 0) + 1;
+    const quantity = ticket.quantity || 1;
+
+    ticket.soldCount = newSoldCount;
+    ticket.buyerIds.push(new Types.ObjectId(buyerId));
+    if (newSoldCount >= quantity) {
+      ticket.isSold = true;
+    }
     await ticket.save();
 
     return {
@@ -172,8 +221,9 @@ export class TicketsService {
       name: ticket.name,
       priceKes: ticket.priceKes,
       imageUrl: ticket.imageUrl,
-      isSold: true,
-      soldAt: ticket.soldAt,
+      isSold: ticket.isSold,
+      remaining: quantity - newSoldCount,
+      soldCount: newSoldCount,
     };
   }
 

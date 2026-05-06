@@ -132,6 +132,22 @@ export class ProfileController {
   }
 
   @UseGuards(VerifiedAuthGuard)
+  @Post('/send-money')
+  async sendMoney(@Req() req: any, @Body('receiverId') receiverId: string, @Body('amount') amount: number) {
+    if (!receiverId) throw new BadRequestException('receiverId is required');
+    if (!amount || amount <= 0) throw new BadRequestException('amount must be > 0');
+    return resOK(await this.profileService.sendMoney(req.user, receiverId, amount));
+  }
+
+  @UseGuards(VerifiedAuthGuard)
+  @Post('/password-check')
+  async passwordCheck(@Req() req: any, @Body('password') password: string) {
+    if (!password) throw new BadRequestException('password is required');
+    await this.profileService.checkPassword(req.user, password);
+    return resOK({ valid: true });
+  }
+
+  @UseGuards(VerifiedAuthGuard)
   @Get("/device")
   async getMyDevice(@Req() req: any) {
     return resOK(await this.profileService.getMyDevices(req.user));
