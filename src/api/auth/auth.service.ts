@@ -1627,4 +1627,198 @@ export class AuthService {
   //   }
   //   throw new BadRequestException('Invalid code !');
   // }
+
+  /**
+   * Firebase Phone Authentication - Register
+   * Verifies Firebase ID token and creates a new user with phone number
+   */
+  async firebasePhoneRegister(dto: any, ipAddress: string, isDev: boolean) {
+    const admin = require('firebase-admin');
+    
+    try {
+      // Verify Firebase ID token
+      const decodedToken = await admin.auth().verifyIdToken(dto.idToken);
+      const phoneNumber = decodedToken.phone_number;
+      
+      if (!phoneNumber) {
+        throw new BadRequestException('Invalid Firebase token: no phone number found');
+      }
+
+      const normalizedPhone = this._normalizePhoneNumber(phoneNumber);
+      
+      // Check if user already exists
+      const existingUser = await this.userService.findOne(
+        { phoneNumber: normalizedPhone },
+        '_id'
+      );
+      
+      if (existingUser) {
+        throw new BadRequestException(i18nApi.userAlreadyRegisterString);
+      }
+
+      // Also check by email (phone as identifier)
+      const existingByIdentifier = await this.userService.findOneByEmail(
+        normalizedPhone,
+        'email'
+      );
+      
+      if (existingByIdentifier) {
+        throw new BadRequestException(i18nApi.userAlreadyRegisterString);
+      }
+
+      // Get app config
+      const appConfig = await this.appConfigService.getConfig();
+      const uniqueCode = await this.generateUniqueCode();
+      
+      // Create user
+      const createdUser: IUser = await this.userService.create({
+        email: normalizedPhone,
+        fullName: dto.fullName,
+        registerStatus: appConfig.userRegisterStatus,
+        bio: null,
+        profession: (dto.profession || '').toString().trim() || null,
+        uniqueCode: uniqueCode,
+        fullNameEn: remove(dto.fullName),
+        registerMethod: RegisterMethod.phone,
+        address: null,
+        password: dto.password,
+        lastSeenAt: new Date(),
+        phoneNumber: normalizedPhone,
+        // @ts-ignore
+        lastMail: {},
+        userImage: appConfig.userIcon,
+      });
+
+      // Get country data
+      const countryData = await geoIp.lookup(ipAddress);
+      if (countryData) {
+        const countryId = await this.userCountryService.setUserCountry(
+          createdUser._id,
+          countryData.country
+        );
+        await this.userService.findByIdAndUpdate(createdUser._id, {
+          address: countryData,
+          countryId,
+        });
+      }
+
+      // Create device and generate tokens
+      const accessToken = await this.deleteDevicesAndCreateNew({
+        userId: createdUser._id,
+        session: null,
+        language: dto.language,
+        platform: dto.platform,
+        ip: ipAddress,
+        deviceInfo: dto.deviceInfo,
+        pushKey: dto.pushKey,
+        userDeviceId: dto.deviceId,
+      });
+
+      // Add loyalty points
+      try {
+        await this.loyaltyPointsService.addPoints(
+          createdUser._id,
+          LoyaltyPointsAction.SIGNUP
+        );
+      } catch (error) {
+        console.error('Failed to add signup loyalty points:', error);
+      }
+
+      await this._pushNotificationSubscribe(dto.pushKey, dto.platform);
+
+      return {
+        accessToken: accessToken,
+        status: appConfig.userRegisterStatus,
+      };
+    } catch (error) {
+      if (error.code === 'auth/id-token-expired') {
+        throw new BadRequestException('Firebase token has expired. Please try again.');
+      }
+      if (error.code === 'auth/id-token-revoked') {
+        throw new BadRequestException('Firebase token has been revoked. Please try again.');
+      }
+      if (error.code === 'auth/invalid-id-token') {
+        throw new BadRequestException('Invalid Firebase token. Please try again.');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Firebase Phone Authentication - Login
+   * Verifies Firebase ID token and logs in existing user
+   */
+  async firebasePhoneLogin(dto: any, isDev: boolean) {
+    const admin = require('firebase-admin');
+    
+    try {
+      // Verify Firebase ID token
+      const decodedToken = await admin.auth().verifyIdToken(dto.idToken);
+      const phoneNumber = decodedToken.phone_number;
+      
+      if (!phoneNumber) {
+        throw new BadRequestException('Invalid Firebase token: no phone number found');
+      }
+
+      const normalizedPhone = this._normalizePhoneNumber(phoneNumber);
+
+      // Find user by phone number
+      let user = await this.userService.findOne(
+        { phoneNumber: normalizedPhone },
+        '+password userDevice lastMail banTo email registerStatus deletedAt twoFactorEnabled twoFactorSecret'
+      );
+
+      // If not found by phoneNumber field, try by email (identifier)
+      if (!user) {
+        user = await this.userService.findOneByEmailOrThrow(
+          normalizedPhone,
+          '+password userDevice lastMail banTo email registerStatus deletedAt twoFactorEnabled twoFactorSecret'
+        );
+      }
+
+      if (!user) {
+        throw new BadRequestException('Phone number not found');
+      }
+
+      // Verify password
+      await this.comparePassword(dto.password, user.password);
+
+      // Check if user is banned
+      if (user.banTo) {
+        throw new BadRequestException(i18nApi.yourAccountBlockedString);
+      }
+
+      // Check two-factor authentication
+      if (user.twoFactorEnabled) {
+        return resOK({
+          twoFactorRequired: true,
+          userId: user._id,
+        });
+      }
+
+      // Finalize login
+      const tokens = await this._finalizeLogin(user, {
+        deviceId: dto.deviceId,
+        pushKey: dto.pushKey,
+        ip: dto.ip,
+        deviceInfo: dto.deviceInfo,
+        language: dto.language,
+        platform: dto.platform,
+        rememberMe: false,
+      } as SocialLoginDto);
+
+      return resOK(tokens);
+    } catch (error) {
+      if (error.code === 'auth/id-token-expired') {
+        throw new BadRequestException('Firebase token has expired. Please try again.');
+      }
+      if (error.code === 'auth/id-token-revoked') {
+        throw new BadRequestException('Firebase token has been revoked. Please try again.');
+      }
+      if (error.code === 'auth/invalid-id-token') {
+        throw new BadRequestException('Invalid Firebase token. Please try again.');
+      }
+      throw error;
+    }
+  }
 }

@@ -62,6 +62,9 @@ export class CreateStoryDto extends CommonDto {
     @ValidateIf(object => object["storyType"] == StoryType.Text)
     fontType?: StoryFontType
 
+    @Allow()
+    storySource?: string
+
     _mediaFile?: Express.Multer.File;
     _secondMediaFile?: Express.Multer.File;
 
@@ -79,6 +82,7 @@ export class CreateStoryDto extends CommonDto {
             somePeople: this.somePeople,
             exceptPeople: this.exceptPeople,
             storyPrivacy: this.storyPrivacy,
+            storySource: this.storySource || 'main',
             expireAt: this.getExpireAt(),
         }
     }

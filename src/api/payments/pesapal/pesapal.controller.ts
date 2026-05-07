@@ -10,12 +10,16 @@ import {
   UseGuards,
   Logger,
 } from "@nestjs/common";
-import { V1Controller } from "../../../core/common/v1-controller.decorator";
-import { PesapalService } from "./pesapal.service";
-import { PesapalCheckoutDto } from "./dto/pesapal-checkout.dto";
-import { resOK } from "../../../core/utils/res.helpers";
-import { VerifiedAuthGuard } from "../../../core/guards/verified.auth.guard";
+
 import { Response } from "express";
+
+import { V1Controller } from "../../../core/common/v1-controller.decorator";
+import { VerifiedAuthGuard } from "../../../core/guards/verified.auth.guard";
+import { resOK } from "../../../core/utils/res.helpers";
+
+import { PesapalService } from "./pesapal.service";
+
+import { PesapalCheckoutDto } from "./dto/pesapal-checkout.dto";
 import { PesapalWithdrawDto } from "./dto/pesapal-withdraw.dto";
 
 @V1Controller("payments/pesapal")

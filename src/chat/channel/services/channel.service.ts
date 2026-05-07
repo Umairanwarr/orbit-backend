@@ -528,23 +528,87 @@ export class ChannelService {
         },
       ];
     }
+    const page = paginationParameters[1].page;
+    const limit = paginationParameters[1].limit;
+    const skip = (page - 1) * limit;
+    const fetchLimit = limit + 1;
+
     let stages = this.getChannelStagesV3({
-      page: paginationParameters[1].page,
-      limit: paginationParameters[1].limit,
+      page,
+      limit,
+      skip,
+      fetchLimit,
       myIdObj: newMongoObjId(userId),
       filter: filter,
     });
-    const res = await this.roomMemberService.aggregateV2(
-      stages,
-      paginationParameters[1].page,
-      paginationParameters[1].limit
-    );
-    // Post-process docs to mask peer image when restricted
-    if (res && Array.isArray(res.docs)) {
-      res.docs = await Promise.all(
-        res.docs.map((r: any) => this._maskRoomPeerImage(r, userId))
-      );
+
+    const t0 = Date.now();
+    let docs = await this.roomMemberService.aggregateDirect(stages);
+    const hasNextPage = docs.length > limit;
+    if (hasNextPage) {
+      docs = docs.slice(0, limit);
     }
+    console.log(`[PERF] aggregateDirect took ${Date.now() - t0}ms for ${docs.length} docs`);
+
+    // Build response in same shape as aggregatePaginate
+    const res = {
+      docs,
+      totalDocs: undefined,
+      limit,
+      page,
+      totalPages: undefined,
+      hasNextPage,
+      hasPrevPage: page > 1,
+      nextPage: hasNextPage ? page + 1 : null,
+      prevPage: page > 1 ? page - 1 : null,
+    };
+    // Post-process docs to mask peer image when restricted
+    const t1 = Date.now();
+    if (res && Array.isArray(res.docs)) {
+      // Batch-fetch all peer users at once instead of N individual queries
+      const peerIds = res.docs
+        .filter((r: any) => {
+          const type = r?.rT;
+          return (type === 's' || type === 'o') && r?.pId;
+        })
+        .map((r: any) => r.pId.toString());
+      
+      let peerMap: Map<string, any> = new Map();
+      if (peerIds.length > 0) {
+        try {
+          const peers = await this.userService.findByIds(peerIds, 'userPrivacy userImage');
+          for (const p of peers) {
+            peerMap.set(p._id.toString(), p);
+          }
+        } catch (_) {
+          // Fallback: skip masking if batch fetch fails
+        }
+      }
+
+      res.docs = res.docs.map((r: any) => {
+        try {
+          const type = r?.rT;
+          if (type === 's' || type === 'o') {
+            const peerId = r?.pId ? r.pId.toString() : '';
+            if (!peerId) return r;
+            const peer = peerMap.get(peerId);
+            if (!peer) return r;
+            const allowList: string[] = (peer as any)?.userPrivacy?.profilePicAllowedUsers || [];
+            const blockList: string[] = (peer as any)?.userPrivacy?.profilePicBlockedUsers || [];
+            const restricted = Array.isArray(allowList) && allowList.length > 0;
+            const isBlocked = Array.isArray(blockList) && blockList.map(String).includes(String(userId));
+            const allowed = !restricted || allowList.map(String).includes(String(userId)) || String(userId) === String(peerId);
+            if (isBlocked && String(userId) !== String(peerId)) {
+              r.img = "/v-public/default_user_image.png";
+            } else if (!allowed) {
+              r.img = "/v-public/default_user_image.png";
+            }
+          }
+        } catch (_) {}
+        return r;
+      });
+    }
+    console.log(`[PERF] maskPeerImage took ${Date.now() - t1}ms`);
     return res;
   }
 
@@ -617,6 +681,18 @@ export class ChannelService {
       let res = await this.messageService.setMessageDeliverForGroupChat(
         dto.myUser._id,
         dto.roomId
+      );
+      // Emit socket event so sender knows about delivery status change
+      this.socket.io.to(dto.roomId.toString()).emit(
+        SocketEventsType.v1OnGroupMessageStatus,
+        JSON.stringify({
+          roomId: dto.roomId.toString(),
+          userId: dto.myUser._id.toString(),
+          userName: dto.myUser.fullName,
+          userImage: dto.myUser.userImage,
+          status: 'delivered',
+          deliveredAt: new Date(),
+        })
       );
       return {
         isUpdated: res,
@@ -1119,36 +1195,6 @@ export class ChannelService {
       {
         $lookup: {
           from: "messages",
-          let: { roomId: "$rId", lastSeenId: "$lSMId", userId: dto.myIdObj },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $gt: ["$_id", "$$lastSeenId"] },
-                    { $eq: ["$rId", "$$roomId"] },
-                    { $ne: ["$sId", "$$userId"] },
-                    { $eq: ["$dltAt", null] },
-                  ],
-                },
-              },
-            },
-            { $count: "uC" },
-          ],
-          as: "unreadMessages",
-        },
-      },
-      {
-        $addFields: {
-          uC: { $ifNull: [{ $arrayElemAt: ["$unreadMessages.uC", 0] }, 0] },
-        },
-      },
-      {
-        $unset: "unreadMessages",
-      },
-      {
-        $lookup: {
-          from: "messages",
           localField: "rId",
           foreignField: "rId",
           pipeline: [
@@ -1161,7 +1207,7 @@ export class ChannelService {
                         $in: [dto.myIdObj, "$dF"],
                       },
                     },
-                    { $eq: ["$dltAt", null] },
+                    { $eq: [{ $ifNull: ["$dltAt", null] }, null] },
                   ],
                 },
               },
@@ -1200,10 +1246,73 @@ export class ChannelService {
           "lastMessage.oneSeenBy",
         ],
       },
+      // Lookup group message statuses for the last message to compute sAt/dAt for group chats
+      {
+        $lookup: {
+          from: 'group_message_statuses',
+          let: { lastMsgId: '$lastMessage._id', lastMsgSenderId: '$lastMessage.sId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$mId', '$$lastMsgId'] },
+                    { $ne: ['$uId', '$$lastMsgSenderId'] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: 'lastMsgGroupStatus'
+        }
+      },
+      {
+        $addFields: {
+          'lastMessage.dAt': {
+            $cond: {
+              if: {
+                $and: [
+                  { $gt: [{ $size: '$lastMsgGroupStatus' }, 0] },
+                  { $eq: [
+                    { $size: { $filter: { input: '$lastMsgGroupStatus', as: 's', cond: { $ne: ['$$s.dAt', null] } } } },
+                    { $size: '$lastMsgGroupStatus' }
+                  ]}
+                ]
+              },
+              then: { $max: '$lastMsgGroupStatus.dAt' },
+              else: '$lastMessage.dAt'
+            }
+          },
+          'lastMessage.sAt': {
+            $cond: {
+              if: {
+                $and: [
+                  { $gt: [{ $size: '$lastMsgGroupStatus' }, 0] },
+                  { $eq: [
+                    { $size: { $filter: { input: '$lastMsgGroupStatus', as: 's', cond: { $ne: ['$$s.sAt', null] } } } },
+                    { $size: '$lastMsgGroupStatus' }
+                  ]}
+                ]
+              },
+              then: { $max: '$lastMsgGroupStatus.sAt' },
+              else: '$lastMessage.sAt'
+            }
+          }
+        }
+      },
+      {
+        $unset: 'lastMsgGroupStatus'
+      },
       {
         $sort: {
           "lastMessage._id": -1,
         },
+      },
+      {
+        $skip: dto.skip ?? 0,
+      },
+      {
+        $limit: dto.fetchLimit ?? 20,
       },
       {
         $lookup: {
@@ -1217,26 +1326,40 @@ export class ChannelService {
                     { $gt: ["$_id", "$$lastSeenId"] },
                     { $eq: ["$rId", "$$roomId"] },
                     { $ne: ["$sId", "$$userId"] },
-                    { $in: ["$$userId", { $ifNull: ["$mentions", []] }] },
-                    { $eq: ["$dltAt", null] },
+                    { $eq: [{ $ifNull: ["$dltAt", null] }, null] },
                   ],
                 },
               },
             },
-            { $count: "mentionsCount" },
+            {
+              $group: {
+                _id: null,
+                uC: { $sum: 1 },
+                mentionsCount: {
+                  $sum: {
+                    $cond: [
+                      { $in: ["$$userId", { $ifNull: ["$mentions", []] }] },
+                      1,
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
           ],
-          as: "mentionsData",
+          as: "unreadAndMentions",
         },
       },
       {
         $addFields: {
+          uC: { $ifNull: [{ $arrayElemAt: ["$unreadAndMentions.uC", 0] }, 0] },
           mentionsCount: {
-            $ifNull: [{ $arrayElemAt: ["$mentionsData.mentionsCount", 0] }, 0],
+            $ifNull: [{ $arrayElemAt: ["$unreadAndMentions.mentionsCount", 0] }, 0],
           },
         },
       },
       {
-        $unset: "mentionsData",
+        $unset: "unreadAndMentions",
       },
     ];
   }

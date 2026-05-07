@@ -40,6 +40,12 @@ export class UserStoryService {
 
     async create(dto: CreateStoryDto) {
         let exceptPeople = [];
+        const decodedAttachment = dto.attachment ? jsonDecoder(dto.attachment) : {};
+
+        // Keep custom attachment even for text stories (e.g. post_share card payload)
+        if (dto.isText() && decodedAttachment && Object.keys(decodedAttachment).length > 0) {
+            dto.att = decodedAttachment;
+        }
 
         if (!dto.isText() && !dto._mediaFile)
             throw new BadRequestException("file data required");
@@ -50,7 +56,7 @@ export class UserStoryService {
                 thumbFile = await this._uploadFile(dto._secondMediaFile, dto.myUser);
             }
             dto.att = {
-                ...jsonDecoder(dto.attachment),
+                ...decodedAttachment,
                 fileSize: dto._mediaFile.size,
                 mimeType: dto._mediaFile.mimetype,
                 name: dto._mediaFile.originalname,
@@ -133,6 +139,9 @@ export class UserStoryService {
         let blocked = [];
         let myIdObj = newMongoObjId(myId);
         blocked.push(myIdObj);
+        const queryParams = dto as any;
+        const storySource = queryParams.storySource || 'main';
+        console.log('findAll - storySource:', storySource, 'queryParams:', queryParams);
         let paginationParameters = new PaginationParameters({
             query: {
                 limit: 30,
@@ -141,14 +150,55 @@ export class UserStoryService {
                 ...dto,
             },
         }).get();
+        
+        // For 'main' source, include stories where storySource is 'main' OR doesn't exist (backwards compatibility)
+        let storySourceFilter;
+        if (storySource === 'main') {
+            storySourceFilter = {$or: [
+                {storySource: 'main'},
+                {storySource: {$exists: false}},
+                {storySource: null},
+            ]};
+            // Remove storySource from match and add $or separately
+            const matchQuery = {
+                expireAt: {$gte: new Date()},
+                userId: {$nin: blocked},
+                somePeople: myIdObj,
+                $or: storySourceFilter.$or,
+            };
+            return this.storyService.aggregateV2(
+                this.storyStages(myIdObj, matchQuery),
+                paginationParameters[1].page,
+                paginationParameters[1].limit
+            );
+        } else {
+            storySourceFilter = storySource;
+        }
+        
         return this.storyService.aggregateV2(
             this.storyStages(myIdObj, {
                 expireAt: {$gte: new Date()},
                 userId: {$nin: blocked},
                 somePeople: myIdObj,
+                storySource: storySourceFilter,
             }),
             paginationParameters[1].page,
             paginationParameters[1].limit
+        );
+    }
+
+    async myStories(myId: string, storySource?: string) {
+        let myIdObj = newMongoObjId(myId);
+        const source = storySource || 'main';
+        console.log('myStories - storySource:', source);
+        return await this.storyService.aggregateV2(
+            this.storyStages(myIdObj, {
+                expireAt: {$gte: new Date()},
+                userId: myIdObj,
+                storySource: source,
+            }),
+            1,
+            30
         );
     }
 
@@ -378,25 +428,6 @@ export class UserStoryService {
                 },
             },
         ]);
-    }
-
-    async myStories(myId: string) {
-        let myIdObj = newMongoObjId(myId);
-        let paginationParameters = new PaginationParameters({
-            query: {
-                limit: 30,
-                page: 1,
-                sort: "-_id",
-            },
-        }).get();
-        return await this.storyService.aggregateV2(
-            this.storyStages(myIdObj, {
-                expireAt: {$gte: new Date()},
-                userId: myIdObj,
-            }),
-            paginationParameters[1].page,
-            paginationParameters[1].limit
-        );
     }
 
     private async _uploadFile(

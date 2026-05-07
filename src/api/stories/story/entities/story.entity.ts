@@ -12,6 +12,7 @@ export interface IStory extends Document {
     userId: string;
     storyType: StoryType
     storyPrivacy?: StoryPrivacy
+    storySource?: string
     fontType: StoryFontType
     content?: string
     att?: object
@@ -36,6 +37,7 @@ export const StorySchema: Schema = new Schema(
         caption: {type: String, default: null},
         storyType: {type: String, default: StoryType.Text},
         storyPrivacy: {type: String, default: StoryPrivacy.Public},
+        storySource: {type: String, default: 'main'},
         somePeople: {type: [Schema.Types.ObjectId], default: []},
         exceptPeople: {type: [Schema.Types.ObjectId], default: []},
         fontType: {type: String, default: StoryFontType.Normal},

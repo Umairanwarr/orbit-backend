@@ -12,6 +12,7 @@ import {PushKeyAndProvider} from "../../../core/utils/interfaceces";
 import {Platform, VPushProvider} from "../../../core/utils/enums";
 import {BaseService} from "../../../core/common/base.service";
 import {IUser} from "../user/entities/user.entity";
+import {isUUID} from "class-validator";
 
 @Injectable()
 export class UserDeviceService extends BaseService<IUserDevice> {
@@ -118,11 +119,22 @@ export class UserDeviceService extends BaseService<IUserDevice> {
         }
         let devices = await this.findAll(filter, "pushKey pushProvider voipKey", {lean: true});
         for (let d of devices) {
-            if (d.pushProvider == VPushProvider.fcm) {
-                res.fcm.push(d.pushKey);
-            }
-            if (d.pushProvider == VPushProvider.onesignal) {
-                res.oneSignal.push(d.pushKey);
+            const key = (d.pushKey ?? '').toString();
+            if (key.length === 0) continue;
+
+            // Backward compatibility: old devices may have null pushProvider.
+            // Infer provider from token format so pushes still deliver.
+            const provider = (d.pushProvider ?? '').toString();
+            if (provider == VPushProvider.fcm) {
+                res.fcm.push(key);
+            } else if (provider == VPushProvider.onesignal) {
+                res.oneSignal.push(key);
+            } else {
+                if (isUUID(key)) {
+                    res.oneSignal.push(key);
+                } else {
+                    res.fcm.push(key);
+                }
             }
             if (d.voipKey) {
                 res.voipKeys.push(d.voipKey);

@@ -8,14 +8,15 @@ import {
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/mongoose";
+
 import { Model } from "mongoose";
+
+import { UserService } from "../../user_modules/user/user.service";
+
 import {
   PesapalTransaction,
   PesapalTransactionDocument,
 } from "./schemas/pesapal-transaction.schema";
-import { UserService } from "../../user_modules/user/user.service";
-import { IUser } from "src/api/user_modules/user/entities/user.entity";
-import { PesapalWithdrawDto } from "./dto/pesapal-withdraw.dto";
 
 @Injectable()
 export class PesapalService implements OnModuleInit {
@@ -471,11 +472,11 @@ export class PesapalService implements OnModuleInit {
     if (!userId) throw new BadRequestException("Missing userId");
     const l = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 50) : 20;
 
-    const docs = await this.txModel
-      .find({ userId, type: "TOPUP" })
-      .sort({ createdAt: -1 })
-      .limit(l)
-      .lean();
+        const docs = await this.txModel
+            .find({ userId, type: "TOPUP" })
+            .sort({ createdAt: -1 })
+            .limit(l)
+            .lean();
 
     return docs.map((d: any) => ({
       id: d._id?.toString?.() ?? d._id,

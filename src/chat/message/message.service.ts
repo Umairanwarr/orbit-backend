@@ -112,8 +112,81 @@ export class MessageService {
                     }
                 }
             },
+            // Lookup group message status to get seen/delivered counts
+            // IMPORTANT: Exclude the sender's own status record (uId != sId) because
+            // the sender never "delivers" or "sees" their own message via the API.
             {
-                $unset: ['oneSeenBy','dF','stars','mentions']
+                $lookup: {
+                    from: 'group_message_statuses',
+                    let: { messageId: '$_id', senderId: '$sId' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ['$mId', '$$messageId'] },
+                                        { $ne: ['$uId', '$$senderId'] }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
+                    as: 'groupStatus'
+                }
+            },
+            {
+                $addFields: {
+                    seenByCount: {
+                        $size: {
+                            $filter: {
+                                input: '$groupStatus',
+                                as: 'status',
+                                cond: { $ne: ['$$status.sAt', null] }
+                            }
+                        }
+                    },
+                    deliveredToCount: {
+                        $size: {
+                            $filter: {
+                                input: '$groupStatus',
+                                as: 'status',
+                                cond: { $ne: ['$$status.dAt', null] }
+                            }
+                        }
+                    },
+                    totalMembersCount: { $size: '$groupStatus' }
+                }
+            },
+            {
+                $addFields: {
+                    dAt: {
+                        $cond: {
+                            if: { 
+                                $and: [
+                                    { $gt: ['$totalMembersCount', 0] },
+                                    { $eq: ['$deliveredToCount', '$totalMembersCount'] }
+                                ]
+                            },
+                            then: { $max: "$groupStatus.dAt" },
+                            else: "$dAt"
+                        }
+                    },
+                    sAt: {
+                        $cond: {
+                            if: { 
+                                $and: [
+                                    { $gt: ['$totalMembersCount', 0] },
+                                    { $eq: ['$seenByCount', '$totalMembersCount'] }
+                                ]
+                            },
+                            then: { $max: "$groupStatus.sAt" },
+                            else: "$sAt"
+                        }
+                    }
+                }
+            },
+            {
+                $unset: ['oneSeenBy','dF','stars','mentions','groupStatus']
             }
         ];
         return this.messageModel.aggregate(pipeline).exec();

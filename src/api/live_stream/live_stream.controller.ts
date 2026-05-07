@@ -141,6 +141,17 @@ export class LiveStreamController {
         return resOK(result);
     }
 
+    // Wallet-based support (deduct from wallet, like music)
+    @Post(':id([0-9a-fA-F]{24})/support-wallet')
+    async supportWallet(
+        @Param('id') streamId: string,
+        @Body() body: { amount: number },
+        @Req() req: any,
+    ) {
+        const result = await this.liveStreamService.supportWallet({ streamId, amount: body.amount, user: req.user });
+        return resOK(result);
+    }
+
     @Get(':id([0-9a-fA-F]{24})/support/:donationId([0-9a-fA-F]{24})/status')
     async getSupportDonationStatus(
         @Param('id') streamId: string,

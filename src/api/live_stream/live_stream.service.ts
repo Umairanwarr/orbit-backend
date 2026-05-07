@@ -25,6 +25,8 @@ import { NotificationData } from '../../common/notification_emitter/notification
 import { PushKeyAndProvider } from '../../core/utils/interfaceces';
 import { RoomMemberService } from '../../chat/room_member/room_member.service';
 import { RoomType } from '../../core/utils/enums';
+import { VideoThumbnailUtil } from '../../core/utils/video-thumbnail.util';
+import axios from 'axios';
 
 @Injectable()
 export class LiveStreamService {
@@ -48,6 +50,46 @@ export class LiveStreamService {
         private readonly agoraRecordingService: AgoraRecordingService,
         private readonly pesapalService: PesapalService,
     ) { }
+
+    private _chunk<T>(arr: T[], size: number): T[][] {
+        if (size <= 0) return [arr];
+        const res: T[][] = [];
+        for (let i = 0; i < arr.length; i += size) {
+            res.push(arr.slice(i, i + size));
+        }
+        return res;
+    }
+
+    /**
+     * Generate thumbnail from video URL
+     * Downloads video, extracts frame, and saves thumbnail
+     */
+    private async _generateThumbnailFromVideo(videoUrl: string, userId: string): Promise<string> {
+        try {
+            // Download video file
+            console.log('[Thumbnail] Downloading video from:', videoUrl);
+            const response = await axios.get(videoUrl, {
+                responseType: 'arraybuffer',
+                timeout: 30000, // 30 second timeout
+            });
+            const videoBuffer = Buffer.from(response.data);
+            console.log('[Thumbnail] Downloaded video, size:', videoBuffer.length);
+
+            // Generate thumbnail using VideoThumbnailUtil
+            const thumbnailUrl = await VideoThumbnailUtil.generateLocalThumbnail(videoBuffer, {
+                fileExt: 'mp4',
+            });
+
+            if (!thumbnailUrl) {
+                throw new Error('Thumbnail generation returned empty URL');
+            }
+
+            return thumbnailUrl;
+        } catch (error) {
+            console.error('[Thumbnail] Error generating thumbnail:', error.message);
+            throw error;
+        }
+    }
 
     async getLiveCategories(): Promise<ILiveCategory[]> {
         return this.categoryModel.find({ isActive: true }).sort({ name: 1 }).exec();
@@ -91,6 +133,106 @@ export class LiveStreamService {
             orderTrackingId: (res as any).orderTrackingId,
             redirectUrl: (res as any).redirectUrl,
             merchantReference: (res as any).merchantReference,
+            amountKes,
+        };
+    }
+
+    async supportWallet(params: { streamId: string; amount: number; user: IUser }) {
+        const { streamId, amount, user } = params;
+        const stream = await this.liveStreamModel.findById(streamId);
+        if (!stream) throw new NotFoundException('Live stream not found');
+        
+        const amountKes = Math.floor(Number(amount || 0));
+        if (!amountKes || amountKes <= 0) throw new BadRequestException('Amount must be greater than 0');
+
+        const senderId = (user as any)._id.toString();
+        const receiverId = stream.streamerId?.toString();
+        if (!receiverId) throw new BadRequestException('Invalid receiver');
+        if (receiverId === senderId) throw new BadRequestException('You cannot support your own stream');
+
+        const accountReference = `STR-${streamId}`;
+
+        // Create support doc (pending)
+        const support = await this.supportDonationModel.create({
+            streamId,
+            senderId,
+            receiverId,
+            currency: 'KES',
+            amountKes,
+            status: 'pending',
+            accountReference,
+        });
+
+        try {
+            await this.userService.subtractFromBalanceAtomic(senderId, amountKes);
+        } catch (e) {
+            await this.supportDonationModel.findByIdAndUpdate(support._id, {
+                status: 'failed',
+            });
+            throw e;
+        }
+
+        await this.userService.addToBalance(receiverId, amountKes);
+        await this.supportDonationModel.findByIdAndUpdate(support._id, {
+            status: 'success',
+            creditedAt: new Date(),
+        });
+
+        // Notify receiver
+        try {
+            const tokens = await this.userDeviceService.getUserPushTokens(receiverId);
+            if ((tokens?.fcm?.length ?? 0) === 0 && (tokens?.oneSignal?.length ?? 0) === 0) {
+                return;
+            }
+
+            const senderName = ((user as any)?.fullName ?? '').toString().trim() || 'Someone';
+            const title = 'Support received';
+            const body = `${senderName} supported your stream with ${amountKes} KES`;
+            const data = {
+                type: 'stream_support',
+                streamId,
+                amountKes,
+                ts: Date.now().toString(),
+            };
+
+            // FCM send
+            if (tokens?.fcm && tokens.fcm.length > 0) {
+                const fcmList = Array.from(tokens.fcm);
+                for (const chunk of this._chunk(fcmList, 500)) {
+                    if (chunk.length === 0) continue;
+                    this.notificationEmitterService.fcmSend(
+                        new NotificationData({
+                            tokens: chunk,
+                            title,
+                            body,
+                            tag: receiverId,
+                            data,
+                        }),
+                    );
+                }
+            }
+
+            // OneSignal send
+            if (tokens?.oneSignal && tokens.oneSignal.length > 0) {
+                const osList = Array.from(tokens.oneSignal);
+                for (const chunk of this._chunk(osList, 2000)) {
+                    if (chunk.length === 0) continue;
+                    this.notificationEmitterService.oneSignalSend(
+                        new NotificationData({
+                            tokens: chunk,
+                            title,
+                            body,
+                            tag: receiverId,
+                            data,
+                        }),
+                    );
+                }
+            }
+        } catch (e) {}
+
+        return {
+            supportId: support._id.toString(),
+            status: 'success',
             amountKes,
         };
     }
@@ -1431,11 +1573,27 @@ export class LiveStreamService {
         // Use Agora recording URL if available, otherwise use provided URL
         const finalRecordingUrl = recordingResult?.recordingUrl || dto.recordingUrl;
 
+        // Generate thumbnail from video if recording URL is available
+        // Always prefer video frame over stream thumbnail for better preview
+        let thumbnailUrl = dto.thumbnailUrl;
+        if (finalRecordingUrl && !thumbnailUrl) {
+            try {
+                console.log('[Recording] Generating thumbnail from video:', finalRecordingUrl);
+                thumbnailUrl = await this._generateThumbnailFromVideo(finalRecordingUrl, stream.streamerId.toString());
+                console.log('[Recording] Generated thumbnail:', thumbnailUrl);
+            } catch (e) {
+                console.error('[Recording] Failed to generate thumbnail:', e.message);
+                // Fallback to stream thumbnail if available
+                thumbnailUrl = recording.thumbnailUrl;
+            }
+        }
+        // If no video thumbnail and no stream thumbnail, keep null
+
         // Update recording with final details
         recording.recordingUrl = finalRecordingUrl;
         recording.duration = duration;
         recording.fileSize = dto.fileSize;
-        recording.thumbnailUrl = dto.thumbnailUrl || recording.thumbnailUrl;
+        recording.thumbnailUrl = thumbnailUrl;
         recording.status = 'completed';
         recording.agoraFileList = recordingResult?.fileList || [];
         await recording.save();

@@ -122,3 +122,5 @@ RoomMemberSchema.plugin(aggregatePaginate);
 RoomMemberSchema.index({rId:1});
 RoomMemberSchema.index({rT:1});
 RoomMemberSchema.index({lSMId:1});
+// Compound index for the room list query: $match {uId, isD, isA}
+RoomMemberSchema.index({uId: 1, isD: 1, isA: 1});

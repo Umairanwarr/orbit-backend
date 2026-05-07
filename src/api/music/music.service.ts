@@ -159,6 +159,65 @@ export class MusicService {
     }
   }
 
+  private async _notifyReceiverOnSupport(params: {
+    receiverId: string;
+    sender: IUser;
+    amountKes: number;
+    musicId: string;
+    musicTitle?: string;
+  }) {
+    const { receiverId, sender, amountKes, musicId, musicTitle } = params;
+    try {
+      const tokens = await this.userDeviceService.getUserPushTokens(receiverId);
+      if ((tokens?.fcm?.length ?? 0) === 0 && (tokens?.oneSignal?.length ?? 0) === 0) {
+        return;
+      }
+
+      const senderName =
+        ((sender as any)?.fullName ?? '').toString().trim() || 'Someone';
+      const amount = Number(amountKes) || 0;
+      const amountLabel = `KES ${amount.toLocaleString('en-KE')}`;
+
+      const title = 'Support received';
+      const body = `You received ${amountLabel} from ${senderName}`;
+      const data = {
+        type: 'music_support_received',
+        musicId,
+        senderId: ((sender as any)?._id ?? '').toString(),
+        senderName,
+        amountKes: amount.toString(),
+        musicTitle: (musicTitle ?? '').toString(),
+        ts: Date.now().toString(),
+      };
+
+      if (tokens.fcm && tokens.fcm.length) {
+        this.notificationEmitter.fcmSend(
+          new NotificationData({
+            tokens: tokens.fcm,
+            title,
+            body,
+            tag: 'music_support',
+            data,
+          }),
+        );
+      }
+
+      if (tokens.oneSignal && tokens.oneSignal.length) {
+        this.notificationEmitter.oneSignalSend(
+          new NotificationData({
+            tokens: tokens.oneSignal,
+            title,
+            body,
+            tag: 'music_support',
+            data,
+          }),
+        );
+      }
+    } catch (e) {
+      console.log('[Music][SupportPush] Failed:', e?.message || e);
+    }
+  }
+
   async getMusicByIdOrThrow(id: string) {
     const doc = await this.musicModel.findById(id);
     if (!doc) throw new NotFoundException("Music item not found");
@@ -686,6 +745,14 @@ export class MusicService {
     await this.supportModel.findByIdAndUpdate(support._id, {
       status: "success",
       creditedAt: new Date(),
+    });
+
+    void this._notifyReceiverOnSupport({
+      receiverId,
+      sender: user,
+      amountKes: amount,
+      musicId: music._id.toString(),
+      musicTitle: (music as any)?.title?.toString?.() ?? '',
     });
 
     return {
