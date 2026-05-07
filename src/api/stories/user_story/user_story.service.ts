@@ -1,5 +1,5 @@
 
-import {BadRequestException, ForbiddenException, Injectable} from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import {StoryService} from "../story/story.service";
 import {CreateStoryDto} from "./dto/story.dto";
 import {resOK} from "../../../core/utils/res.helpers";
@@ -22,6 +22,7 @@ import {MongoPeerIdDto} from "../../../core/common/dto/mongo.peer.id.dto";
 import {v4 as uuidv4} from 'uuid';
 import {SocketIoService} from "../../../chat/socket_io/socket_io.service";
 import {SocketEventsType} from "../../../core/utils/enums";
+import { StatusAiService } from "../status_ai/status_ai.service";
 
 @Injectable()
 export class UserStoryService {
@@ -35,6 +36,7 @@ export class UserStoryService {
         private readonly channelService: ChannelService,
         private readonly messageChannelService: MessageChannelService,
         private readonly socketIoService: SocketIoService,
+        private readonly statusAi: StatusAiService,
     ) {
     }
 
@@ -63,6 +65,48 @@ export class UserStoryService {
                 url: mainFileKey,
                 thumbUrl: thumbFile
             };
+        }
+
+        // AI pre-publish processing (caption + moderation + suggestions)
+        try {
+            const mimeType =
+              (dto.att as any)?.mimeType ||
+              dto._mediaFile?.mimetype ||
+              (decodedAttachment as any)?.mimeType ||
+              undefined;
+
+            const pipeline = await this.statusAi.processBeforePublish({
+                storyType: dto.storyType,
+                text: dto.content,
+                caption: dto.caption,
+                mimeType,
+            });
+
+            // Block publishing if moderation rejects content
+            if (!pipeline.analysis?.moderation?.allowed) {
+                throw new BadRequestException(
+                  `Status rejected: ${pipeline.analysis.moderation.reasons.join(", ") || "not allowed"}`,
+                );
+            }
+
+            // Auto-fill caption if empty
+            if ((!dto.caption || dto.caption.toString().trim().length === 0) && pipeline.suggestedCaption) {
+                dto.caption = pipeline.suggestedCaption;
+            }
+
+            // Attach AI metadata into the story attachment payload (no schema change required)
+            dto.att = {
+                ...(dto.att || {}),
+                ai: {
+                    moderation: pipeline.analysis.moderation,
+                    labels: pipeline.analysis.labels,
+                    language: pipeline.analysis.language,
+                    suggestions: pipeline.suggestions,
+                },
+            };
+        } catch (e) {
+            // If AI pipeline throws (timeouts, external API), do not block publish unless it's a BadRequest
+            if (e instanceof BadRequestException) throw e;
         }
 
         // Handle story privacy logic

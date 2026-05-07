@@ -15,6 +15,7 @@ import {UserBanModule} from "../../user_modules/user_ban/user_ban.module";
 import {StoryAttachmentModule} from "../story_attachment/story_attachment.module";
 import {ChannelModule} from "../../../chat/channel/channel.module";
 import {SocketIoModule} from "../../../chat/socket_io/socket_io.module";
+import { StatusAiModule } from "../status_ai/status_ai.module";
 
 @Module({
   controllers: [UserStoryController],
@@ -28,7 +29,8 @@ import {SocketIoModule} from "../../../chat/socket_io/socket_io.module";
       UserBanModule,
       StoryAttachmentModule,
       ChannelModule,
-      SocketIoModule
+      SocketIoModule,
+      StatusAiModule,
   ]
 })
 export class UserStoryModule {}
