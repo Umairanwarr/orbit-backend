@@ -73,6 +73,7 @@ import { PesapalModule } from "./api/payments/pesapal/pesapal.module";
 import { StoryModule } from "./api/stories/story/story.module";
 import { StoryAttachmentModule } from "./api/stories/story_attachment/story_attachment.module";
 import { UserStoryModule } from "./api/stories/user_story/user_story.module";
+import { StorySubscriptionModule } from "./api/stories/story_subscription/story_subscription.module";
 import { EmergencyContactModule } from './api/user_modules/emergency_contact/emergency_contact.module';
 import { LoyaltyPointsModule } from "./api/user_modules/loyalty_points/loyalty_points.module";
 import { UserModule } from "./api/user_modules/user/user.module";
@@ -88,7 +89,7 @@ import { CallMemberModule } from "./chat/call_modules/call_member/call_member.mo
 import { DbMigrateModule } from "./common/db/db_migrate/db_migrate.module";
 import { FirstRunModule } from "./common/db/first_run/first_run.module";
 import { WalletModule } from "./api/payments/pesapal/wallet/wallet.module";
-import { IUser } from "./api/user_modules/user/entities/user.entity";
+import { EmailBackupModule } from "./api/email_backup/email-backup.module";
 
 @Module({
   imports: [
@@ -109,7 +110,8 @@ import { IUser } from "./api/user_modules/user/entities/user.entity";
       inject: [ConfigService],
       useFactory: async (conf: ConfigService) => {
         const dbUrl = conf.getOrThrow<string>("DB_URL");
-        console.log("DB_URL from ConfigService:", dbUrl); // Log the DB_URL
+        const hostMatch = dbUrl.match(/@([^/?]+)/);
+        console.log("MongoDB:", hostMatch ? hostMatch[1] : "uri configured");
         return {
           uri: conf.getOrThrow<string>("DB_URL"),
         };
@@ -119,6 +121,7 @@ import { IUser } from "./api/user_modules/user/entities/user.entity";
     CountriesModule,
     UserCountryModule,
     MailEmitterModule,
+    EmailBackupModule,
     VersionsModule,
     AppConfigModule,
     AuthModule,
@@ -149,6 +152,7 @@ import { IUser } from "./api/user_modules/user/entities/user.entity";
     AgoraModule,
     StoryModule,
     UserStoryModule,
+    StorySubscriptionModule,
     FirstRunModule,
     DbMigrateModule,
     ChatRequestModule,
