@@ -12,6 +12,7 @@ import {
   PesapalTransaction,
   PesapalTransactionSchema,
 } from "./schemas/pesapal-transaction.schema";
+import { UserSchema } from "../../user_modules/user/entities/user.entity";
 
 @Module({
   imports: [

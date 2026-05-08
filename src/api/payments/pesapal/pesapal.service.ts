@@ -12,11 +12,13 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 
 import { UserService } from "../../user_modules/user/user.service";
+import { IUser } from "../../user_modules/user/entities/user.entity";
 
 import {
   PesapalTransaction,
   PesapalTransactionDocument,
 } from "./schemas/pesapal-transaction.schema";
+import { PesapalWithdrawDto } from "./dto/pesapal-withdraw.dto";
 
 @Injectable()
 export class PesapalService implements OnModuleInit {
@@ -197,6 +199,8 @@ export class PesapalService implements OnModuleInit {
     firstName?: string;
     lastName?: string;
     accountReference?: string;
+    type?: "TOPUP" | "WITHDRAWAL" | "STORY_SUBSCRIPTION";
+    planKey?: string;
   }): Promise<{
     id: string;
     merchantReference: string;
@@ -248,7 +252,7 @@ export class PesapalService implements OnModuleInit {
 
     // Create local transaction record
     const tx = await this.txModel.create({
-      type: "TOPUP",
+      type: dto.type || "TOPUP",
       status: "pending",
       amount,
       currency,
@@ -256,6 +260,7 @@ export class PesapalService implements OnModuleInit {
       description: dto.description || "Wallet top-up",
       accountReference: merchantReference,
       merchantReference,
+      planKey: dto.planKey,
       email,
       phone,
       firstName,
@@ -501,6 +506,18 @@ export class PesapalService implements OnModuleInit {
     return tx;
   }
 
+  async findTxByOrderTrackingId(
+    orderTrackingId: string,
+    userId?: string,
+  ): Promise<any> {
+    const tx: any = await this.txModel.findOne({ orderTrackingId }).lean();
+    if (!tx) throw new BadRequestException("Transaction not found");
+    if (userId && tx?.userId && tx.userId !== userId) {
+      throw new BadRequestException("Not allowed");
+    }
+    return tx;
+  }
+
   async verifyTransaction(dto: {
     userId: string;
     orderTrackingId: string;
@@ -548,7 +565,12 @@ export class PesapalService implements OnModuleInit {
     );
 
     // Credit wallet on success (idempotent)
-    if (isSuccess && saved?.userId && saved.amount > 0) {
+    if (
+      isSuccess &&
+      saved?.userId &&
+      saved.amount > 0 &&
+      saved.type === "TOPUP"
+    ) {
       const claimed = await this.txModel.findOneAndUpdate(
         { _id: saved._id, walletCreditedAt: { $exists: false } },
         { $set: { walletCreditedAt: new Date() } },
@@ -566,8 +588,11 @@ export class PesapalService implements OnModuleInit {
     }
 
     return {
+      txId: saved?._id?.toString?.() ?? saved?._id,
       orderTrackingId: dto.orderTrackingId,
       status: saved?.status || update.status,
+      type: saved?.type,
+      planKey: saved?.planKey,
       amount: saved?.amount,
       currency: saved?.currency,
       confirmationCode: saved?.confirmationCode,
