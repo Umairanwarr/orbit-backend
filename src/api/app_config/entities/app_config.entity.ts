@@ -66,6 +66,10 @@ export interface IAppConfig {
   // Driver Subscription
   driverSubscriptionFee?: number;
   transactionCommissionPercent?: number;
+  // Story (video) subscription — prices set from admin panel (same pattern as verification fees)
+  storySubscriptionWeeklyFee?: number;
+  storySubscriptionMonthlyFee?: number;
+  storySubscriptionQuarterlyFee?: number;
 }
 
 export const AppConfigSchema = new mongoose.Schema(
@@ -186,6 +190,10 @@ export const AppConfigSchema = new mongoose.Schema(
     driverSubscriptionFee: { type: Number, default: 0 },
     // Transaction Commission
     transactionCommissionPercent: { type: Number, default: 5 },
+    // Story subscription (admin-configured; 0 = plan not offered until admin sets a price)
+    storySubscriptionWeeklyFee: { type: Number, default: 0 },
+    storySubscriptionMonthlyFee: { type: Number, default: 0 },
+    storySubscriptionQuarterlyFee: { type: Number, default: 0 },
   },
   {
     timestamps: true,

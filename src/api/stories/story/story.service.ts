@@ -8,6 +8,7 @@ import {InjectModel} from "@nestjs/mongoose";
 import {FilterQuery, Model, PaginateModel, QueryOptions, UpdateQuery} from "mongoose";
 import {IStory} from "./entities/story.entity";
 import {BaseService} from "../../../core/common/base.service";
+import { StoryType } from "../../../core/utils/enums";
 
 @Injectable()
 export class StoryService extends BaseService<IStory> {
@@ -139,6 +140,16 @@ export class StoryService extends BaseService<IStory> {
             page,
             limit,
         });
+    }
+
+    async countByUserId(userId: string): Promise<number> {
+        return this.model.countDocuments({ userId } as any).exec();
+    }
+
+    async countVideoStoriesByUserId(userId: string): Promise<number> {
+        return this.model
+          .countDocuments({ userId, storyType: StoryType.Video } as any)
+          .exec();
     }
 
     private async _deleteAll() {

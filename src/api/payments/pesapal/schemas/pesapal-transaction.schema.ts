@@ -10,11 +10,16 @@ export type PesapalTransactionStatus =
   | "cancelled"
   | "reversed";
 
-export type PesapalTransactionType = "TOPUP" | "WITHDRAWAL";
+export type PesapalTransactionType = "TOPUP" | "WITHDRAWAL" | "STORY_SUBSCRIPTION";
 
 @Schema({ timestamps: true, collection: "pesapal_transactions" })
 export class PesapalTransaction {
-  @Prop({ type: String, enum: ["TOPUP", "WITHDRAWAL"], default: "TOPUP" })
+  @Prop({
+    type: String,
+    enum: ["TOPUP", "WITHDRAWAL", "STORY_SUBSCRIPTION"],
+    default: "TOPUP",
+    index: true,
+  })
   type: PesapalTransactionType;
 
   @Prop({
@@ -39,6 +44,10 @@ export class PesapalTransaction {
 
   @Prop({ type: String, required: false })
   accountReference?: string;
+
+  // Optional: subscription plan key for STORY_SUBSCRIPTION
+  @Prop({ type: String, required: false, index: true })
+  planKey?: string;
 
   // PesaPal order tracking ID (returned after submitting an order)
   @Prop({ type: String, required: false, index: true })

@@ -170,4 +170,14 @@ export class UpdateConfigDto extends CommonDto {
 
     @Allow()
     marketplaceCategories?: string[];
+
+    // Story (video) subscription fees (admin panel — same as verification fees pattern)
+    @Allow()
+    storySubscriptionWeeklyFee?: number;
+
+    @Allow()
+    storySubscriptionMonthlyFee?: number;
+
+    @Allow()
+    storySubscriptionQuarterlyFee?: number;
 }

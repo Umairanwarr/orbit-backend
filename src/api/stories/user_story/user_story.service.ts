@@ -1,5 +1,5 @@
 
-import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable } from "@nestjs/common";
 import {StoryService} from "../story/story.service";
 import {CreateStoryDto} from "./dto/story.dto";
 import {resOK} from "../../../core/utils/res.helpers";
@@ -12,7 +12,7 @@ import {BanService} from "../../ban/ban.service";
 import {UserBanService} from "../../user_modules/user_ban/user_ban.service";
 import {PaginationParameters} from "mongoose-paginate-v2";
 import {UserService} from "../../user_modules/user/user.service";
-import {StoryPrivacy, UserPrivacyTypes, MessageType} from "../../../core/utils/enums";
+import {StoryPrivacy, UserPrivacyTypes, MessageType, StoryType} from "../../../core/utils/enums";
 import {IUser} from "../../user_modules/user/entities/user.entity";
 import {StoryAttachmentService} from "../story_attachment/story_attachment.service";
 import {ChannelService} from "../../../chat/channel/services/channel.service";
@@ -23,6 +23,7 @@ import {v4 as uuidv4} from 'uuid';
 import {SocketIoService} from "../../../chat/socket_io/socket_io.service";
 import {SocketEventsType} from "../../../core/utils/enums";
 import { StatusAiService } from "../status_ai/status_ai.service";
+import { StorySubscriptionService } from "../story_subscription/story_subscription.service";
 
 @Injectable()
 export class UserStoryService {
@@ -37,10 +38,39 @@ export class UserStoryService {
         private readonly messageChannelService: MessageChannelService,
         private readonly socketIoService: SocketIoService,
         private readonly statusAi: StatusAiService,
+        private readonly storySubs: StorySubscriptionService,
     ) {
     }
 
     async create(dto: CreateStoryDto) {
+        // Story subscription gating: 1 free story, then subscription required for unlimited publishing
+        try {
+            const userId = dto?.myUser?._id?.toString?.() ?? dto?.myUser?._id;
+            if (userId) {
+                // Apply limit ONLY for video stories: 1 free video story then subscription required
+                if (dto.storyType === StoryType.Video) {
+                    const postedVideoCount = await this.storyService.countVideoStoriesByUserId(userId);
+                    if (postedVideoCount >= 1) {
+                        const hasActive = await this.storySubs.hasActive(userId);
+                        if (!hasActive) {
+                            throw new HttpException(
+                                {
+                                    message: "Video story subscription required",
+                                    code: "STORY_SUBSCRIPTION_REQUIRED",
+                                    freeVideoStoryLimit: 1,
+                                    postedVideoCount,
+                                },
+                                HttpStatus.PAYMENT_REQUIRED,
+                            );
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // If it's our explicit payment-required exception, bubble up; otherwise don't block story creation
+            if (e instanceof HttpException) throw e;
+        }
+
         let exceptPeople = [];
         const decodedAttachment = dto.attachment ? jsonDecoder(dto.attachment) : {};
 

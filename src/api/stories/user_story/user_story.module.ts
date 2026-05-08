@@ -16,6 +16,7 @@ import {StoryAttachmentModule} from "../story_attachment/story_attachment.module
 import {ChannelModule} from "../../../chat/channel/channel.module";
 import {SocketIoModule} from "../../../chat/socket_io/socket_io.module";
 import { StatusAiModule } from "../status_ai/status_ai.module";
+import { StorySubscriptionModule } from "../story_subscription/story_subscription.module";
 
 @Module({
   controllers: [UserStoryController],
@@ -31,6 +32,7 @@ import { StatusAiModule } from "../status_ai/status_ai.module";
       ChannelModule,
       SocketIoModule,
       StatusAiModule,
+      StorySubscriptionModule,
   ]
 })
 export class UserStoryModule {}
