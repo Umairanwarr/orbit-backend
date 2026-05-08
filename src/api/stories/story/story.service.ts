@@ -152,6 +152,12 @@ export class StoryService extends BaseService<IStory> {
           .exec();
     }
 
+        async countStoriesByUserIdAndType(userId: string, storyType: StoryType): Promise<number> {
+                return this.model
+                    .countDocuments({ userId, storyType } as any)
+                    .exec();
+        }
+
     private async _deleteAll() {
       await  this.model.deleteMany({});
         console.log("Done")

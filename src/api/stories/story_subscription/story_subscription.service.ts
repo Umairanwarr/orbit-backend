@@ -3,17 +3,20 @@ import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { AppConfigService } from "../../app_config/app_config.service";
+import { StoryService } from "../story/story.service";
 import {
   StorySubscription,
   StorySubscriptionDocument,
   StorySubscriptionPlan,
 } from "./schemas/story-subscription.schema";
+import { StoryType } from "../../../core/utils/enums";
 
 @Injectable()
 export class StorySubscriptionService {
   constructor(
     private readonly config: ConfigService,
     private readonly appConfigService: AppConfigService,
+    private readonly storyService: StoryService,
     @InjectModel(StorySubscription.name)
     private readonly model: Model<StorySubscriptionDocument>,
   ) {}
@@ -79,6 +82,42 @@ export class StorySubscriptionService {
   async hasActive(userId: string): Promise<boolean> {
     const sub = await this.getActive(userId);
     return !!sub;
+  }
+
+  async checkEligibility(userId: string, storyType: StoryType | string) {
+    const type = (storyType || "").toString().trim().toLowerCase() as StoryType;
+    const freeLimit = 1;
+    const gatedTypes = [
+      StoryType.Text,
+      StoryType.Image,
+      StoryType.Video,
+      StoryType.Voice,
+    ];
+
+    if (!gatedTypes.includes(type)) {
+      return {
+        allowed: true,
+        storyType: type,
+        freeLimit,
+        postedCount: 0,
+        subscriptionActive: await this.hasActive(userId),
+      };
+    }
+
+    const postedCount = await this.storyService.countStoriesByUserIdAndType(
+      userId,
+      type,
+    );
+    const subscriptionActive = await this.hasActive(userId);
+    const allowed = postedCount < freeLimit || subscriptionActive;
+
+    return {
+      allowed,
+      storyType: type,
+      freeLimit,
+      postedCount,
+      subscriptionActive,
+    };
   }
 
   async activate(params: {

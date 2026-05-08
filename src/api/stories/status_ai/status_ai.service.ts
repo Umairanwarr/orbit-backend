@@ -22,9 +22,10 @@ export class StatusAiService {
   }
 
   private get openAiKey(): string {
-    return (
-      this.config.get<string>("OPENAI_API_KEY") ?? process.env.OPENAI_API_KEY ?? ""
-    );
+    const key =
+      this.config.get<string>("OPENAI_API_KEY") ?? process.env.OPENAI_API_KEY ?? "";
+    // Strip surrounding quotes if env parser left them in
+    return key.replace(/^"+|"+$/g, "").trim();
   }
 
   private get openAiModel(): string {
@@ -95,15 +96,30 @@ export class StatusAiService {
     text?: string;
     caption?: string;
     mimeType?: string;
+    file?: Express.Multer.File;
   }): Promise<StatusAiSuggestionResult> {
     if (!this.enabled) {
       return { captions: [], hashtags: [], emojis: [], filters: [] };
     }
 
+    const key = this.openAiKey;
+    this.logger.log(`[suggestions] openAiKey set: ${!!key}, keyLength: ${key.length}`);
+
     const baseText = [input.caption, input.text].filter(Boolean).join(" ").trim();
     const quick = this._simpleSuggestions(input.storyType, baseText, input.mimeType);
 
-    const ai = await this._openAiSuggestions(baseText, input.storyType, input.mimeType);
+    let base64Image: string | undefined = undefined;
+    if (input.file && input.file.buffer) {
+      const mime = input.file.mimetype || "image/jpeg";
+      const base64Str = input.file.buffer.toString("base64");
+      base64Image = `data:${mime};base64,${base64Str}`;
+      this.logger.log(`[suggestions] image attached, size=${input.file.size}, mime=${mime}`);
+    } else {
+      this.logger.log(`[suggestions] no image file attached`);
+    }
+
+    const ai = await this._openAiSuggestions(baseText, input.storyType, input.mimeType, base64Image);
+    this.logger.log(`[suggestions] ai result: ${ai ? "success" : "null (fallback to simple)"}`);
     if (ai) {
       return {
         captions: this._uniq([...(ai.captions || []), ...quick.captions]).slice(0, 8),
@@ -306,6 +322,7 @@ export class StatusAiService {
     text: string,
     storyType: StoryType,
     mimeType?: string,
+    base64Image?: string,
   ): Promise<StatusAiSuggestionResult | null> {
     if (!this.openAiKey) return null;
     const prompt = [
@@ -320,7 +337,7 @@ export class StatusAiService {
       `Text/caption context: ${text || "(none)"}`,
     ].join("\n");
 
-    const json = await this._openAiJson(prompt);
+    const json = await this._openAiJson(prompt, base64Image);
     if (!json) return null;
     const normArr = (v: any) =>
       Array.isArray(v) ? v.map((x) => (x || "").toString().trim()).filter(Boolean) : [];
@@ -332,34 +349,66 @@ export class StatusAiService {
     };
   }
 
-  private async _openAiJson(prompt: string): Promise<any | null> {
+  private async _openAiJson(prompt: string, base64Image?: string): Promise<any | null> {
+    const key = this.openAiKey;
+    if (!key) {
+      this.logger.warn("[_openAiJson] No OpenAI API key — skipping AI call");
+      return null;
+    }
+
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
+      const timeout = setTimeout(() => controller.abort(), 15000);
+
+      const userContent: any[] = [{ type: "text", text: prompt }];
+      if (base64Image) {
+        userContent.push({
+          type: "image_url",
+          image_url: { url: base64Image, detail: "low" },
+        });
+      }
+
+      this.logger.log(`[_openAiJson] Calling OpenAI. hasImage=${!!base64Image}`);
 
       const resp = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${this.openAiKey}`,
+          Authorization: `Bearer ${key}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           model: this.openAiModel,
           temperature: 0.6,
+          response_format: { type: "json_object" },
           messages: [
-            { role: "system", content: "You output ONLY valid JSON." },
-            { role: "user", content: prompt },
+            { role: "system", content: "You output ONLY valid JSON. No markdown, no code fences." },
+            { role: "user", content: userContent },
           ],
         }),
         signal: controller.signal,
       }).finally(() => clearTimeout(timeout));
 
+      if (!resp.ok) {
+        const errBody = await resp.text().catch(() => "");
+        this.logger.error(`[_openAiJson] OpenAI HTTP ${resp.status}: ${errBody.slice(0, 300)}`);
+        return null;
+      }
+
       const data: any = await resp.json().catch(() => ({}));
       const content = data?.choices?.[0]?.message?.content;
+      this.logger.log(`[_openAiJson] raw content: ${String(content).slice(0, 200)}`);
+
       if (!content || typeof content !== "string") return null;
-      return JSON.parse(content);
+
+      // Strip markdown code fences if GPT wraps the JSON (e.g. ```json ... ```)
+      const stripped = content
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "")
+        .trim();
+
+      return JSON.parse(stripped);
     } catch (e: any) {
-      this.logger.warn(`OpenAI JSON call failed: ${e?.message}`);
+      this.logger.warn(`[_openAiJson] OpenAI call failed: ${e?.message}`);
       return null;
     }
   }

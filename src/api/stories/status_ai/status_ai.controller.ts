@@ -1,4 +1,5 @@
-import { Body, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Post, Req, UseGuards, UseInterceptors, UploadedFile } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { VerifiedAuthGuard } from "../../../core/guards/verified.auth.guard";
 import { V1Controller } from "../../../core/common/v1-controller.decorator";
 import { resOK } from "../../../core/utils/res.helpers";
@@ -35,12 +36,18 @@ export class StatusAiController {
   }
 
   @Post("/suggestions")
-  async suggestions(@Body() dto: StatusAiSuggestionsDto, @Req() _req: any) {
+  @UseInterceptors(FileInterceptor("file"))
+  async suggestions(
+    @Body() dto: StatusAiSuggestionsDto,
+    @Req() _req: any,
+    @UploadedFile() file?: Express.Multer.File
+  ) {
     const out = await this.ai.suggestions({
       storyType: dto.storyType,
       text: dto.text,
       caption: dto.caption,
       mimeType: dto.mimeType,
+      file,
     });
     return resOK(out);
   }

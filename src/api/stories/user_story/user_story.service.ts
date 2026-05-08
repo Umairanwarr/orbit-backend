@@ -43,26 +43,24 @@ export class UserStoryService {
     }
 
     async create(dto: CreateStoryDto) {
-        // Story subscription gating: 1 free story, then subscription required for unlimited publishing
+        // Story subscription gating: 1 free story per type, then subscription required
         try {
             const userId = dto?.myUser?._id?.toString?.() ?? dto?.myUser?._id;
-            if (userId) {
-                // Apply limit ONLY for video stories: 1 free video story then subscription required
-                if (dto.storyType === StoryType.Video) {
-                    const postedVideoCount = await this.storyService.countVideoStoriesByUserId(userId);
-                    if (postedVideoCount >= 1) {
-                        const hasActive = await this.storySubs.hasActive(userId);
-                        if (!hasActive) {
-                            throw new HttpException(
-                                {
-                                    message: "Video story subscription required",
-                                    code: "STORY_SUBSCRIPTION_REQUIRED",
-                                    freeVideoStoryLimit: 1,
-                                    postedVideoCount,
-                                },
-                                HttpStatus.PAYMENT_REQUIRED,
-                            );
-                        }
+            const freeLimit = 1;
+            const gatedTypes = [StoryType.Text, StoryType.Image, StoryType.Video, StoryType.Voice];
+
+            if (userId && gatedTypes.includes(dto.storyType)) {
+                const postedCount = await this.storyService.countStoriesByUserIdAndType(
+                    userId,
+                    dto.storyType,
+                );
+                if (postedCount >= freeLimit) {
+                    const hasActive = await this.storySubs.hasActive(userId);
+                    if (!hasActive) {
+                        throw new HttpException(
+                            `STORY_SUBSCRIPTION_REQUIRED|type=${dto.storyType}|limit=${freeLimit}|count=${postedCount}`,
+                            HttpStatus.PAYMENT_REQUIRED,
+                        );
                     }
                 }
             }

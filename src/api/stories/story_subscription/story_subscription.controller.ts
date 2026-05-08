@@ -1,10 +1,11 @@
-import { Body, Get, HttpException, HttpStatus, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Get, HttpException, HttpStatus, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { V1Controller } from "../../../core/common/v1-controller.decorator";
 import { VerifiedAuthGuard } from "../../../core/guards/verified.auth.guard";
 import { resOK } from "../../../core/utils/res.helpers";
 import { PesapalService } from "../../payments/pesapal/pesapal.service";
 import { CreateStorySubscriptionDto } from "./dto/create-story-subscription.dto";
 import { ConfirmStorySubscriptionDto } from "./dto/confirm-story-subscription.dto";
+import { CheckStoryEligibilityDto } from "./dto/check-story-eligibility.dto";
 import { StorySubscriptionService } from "./story_subscription.service";
 
 @UseGuards(VerifiedAuthGuard)
@@ -25,6 +26,12 @@ export class StorySubscriptionController {
     const userId = req.user?._id?.toString();
     const active = await this.subs.getActive(userId);
     return resOK({ active: !!active, subscription: active || null });
+  }
+
+  @Get("/eligibility")
+  async eligibility(@Req() req: any, @Query() dto: CheckStoryEligibilityDto) {
+    const userId = req.user?._id?.toString();
+    return resOK(await this.subs.checkEligibility(userId, dto.storyType));
   }
 
   @Post("/subscribe")
