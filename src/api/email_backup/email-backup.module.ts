@@ -6,6 +6,7 @@ import { AuthModule } from "../auth/auth.module";
 import { MailEmitterModule } from "../mail/mail.emitter.module";
 import { MessageSchema } from "../../chat/message/entities/message.entity";
 import { UserFollowSchema } from "../user_modules/user_follow/entities/user_follow.entity";
+import { RoomMemberSchema } from "../../chat/room_member/entities/room_member.entity";
 
 import { EmailBackupController } from "./email-backup.controller";
 import { EmailBackupService } from "./email-backup.service";
@@ -31,6 +32,8 @@ import {
       { name: "message", schema: MessageSchema },
       // ensure user_follow model available for backup queries
       { name: "user_follow", schema: UserFollowSchema },
+      // room_member model for per-chat backup exports
+      { name: "room_member", schema: RoomMemberSchema },
     ]),
   ],
   controllers: [EmailBackupController],
