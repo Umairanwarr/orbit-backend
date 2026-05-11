@@ -56,5 +56,9 @@ export class Reel {
 
 export const ReelSchema = SchemaFactory.createForClass(Reel);
 
-ReelSchema.index({ createdAt: -1 });
-ReelSchema.index({ audioId: 1 }); // Important for trending audio later
+// Feed: sort + cursor pagination (createdAt, _id)
+ReelSchema.index({ createdAt: -1, _id: -1 });
+// Feed filter: exclude uploader while scanning recent reels
+ReelSchema.index({ createdAt: -1, uploaderId: 1 });
+// Trending audio aggregation: match on audioId + createdAt window
+ReelSchema.index({ audioId: 1, createdAt: -1 });

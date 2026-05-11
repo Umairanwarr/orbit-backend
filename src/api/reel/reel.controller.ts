@@ -1,3 +1,4 @@
+/// <reference types="multer" />
 import {
   Controller,
   Post,
@@ -14,9 +15,11 @@ import {
   Param,
 } from "@nestjs/common";
 import { FileFieldsInterceptor } from "@nestjs/platform-express";
-import { ReelService } from "./reel.service";
+
 import { VerifiedAuthGuard } from "src/core/guards/verified.auth.guard";
 import { V1Controller } from "src/core/common/v1-controller.decorator";
+
+import { ReelService } from "./reel.service";
 
 @UseGuards(VerifiedAuthGuard)
 @V1Controller("reels")
@@ -108,14 +111,19 @@ export class ReelController {
   async getReelsFeed(
     @Req() req: any,
     @Query("limit", new DefaultValuePipe(5), ParseIntPipe) limit: number,
+    @Query("cursor") cursor?: string,
   ) {
-    // Keep the batch size small (5-10) for faster loading on mobile
     const safeLimit = limit > 10 ? 10 : limit;
-    const data = await this.reelService.getReelsFeed(req.user, safeLimit);
+    const { reels, nextCursor } = await this.reelService.getReelsFeed(
+      req.user,
+      safeLimit,
+      cursor,
+    );
 
     return {
       success: true,
-      data,
+      data: reels,
+      nextCursor,
     };
   }
 

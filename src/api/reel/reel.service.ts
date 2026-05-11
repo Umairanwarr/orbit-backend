@@ -1,15 +1,34 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+/// <reference types="multer" />
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model } from "mongoose";
-import * as fs from "fs";
+import { Model, PipelineStage, Types } from "mongoose";
+import { promises as fsp } from "fs";
 import * as path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { Reel, ReelDocument } from "./entity/reel.schema";
 import { ReelComment, ReelCommentDocument } from "./entity/reel-comment.schema";
 import { ReelLike, ReelLikeDocument } from "./entity/reel-like.schema";
+import {
+  compressReelVideo,
+  getReelTempDir,
+} from "src/core/utils/reel-video-compress.util";
 
 @Injectable()
 export class ReelService {
+  /** Short TTL cache for trending audio aggregation (reduces repeated heavy pipelines). */
+  private trendingAudioCache: {
+    at: number;
+    limit: number;
+    data: unknown[];
+  } | null = null;
+  /** Same-limit concurrent misses share one aggregation (avoids thundering herd / cache race). */
+  private readonly trendingAudioInFlight = new Map<number, Promise<unknown[]>>();
+  private readonly TRENDING_AUDIO_TTL_MS = 90_000;
+
   constructor(
     @InjectModel(Reel.name) private readonly reelModel: Model<ReelDocument>,
     @InjectModel(ReelComment.name)
@@ -42,19 +61,44 @@ export class ReelService {
     }
 
     const mediaDir = path.join(process.cwd(), "public", "media", "reels");
-    if (!fs.existsSync(mediaDir)) {
-      fs.mkdirSync(mediaDir, { recursive: true });
-    }
+    const tempDir = getReelTempDir();
+    await fsp.mkdir(mediaDir, { recursive: true });
+    await fsp.mkdir(tempDir, { recursive: true });
 
-    // Process Video
-    const videoExt = path.extname(videoFile.originalname) || ".mp4";
-    const videoName = `reel_${uuidv4()}${videoExt}`;
-    fs.writeFileSync(path.join(mediaDir, videoName), videoFile.buffer);
+    const reelId = uuidv4();
+    const rawExt = path.extname(videoFile.originalname) || ".mp4";
+    const safeExt = rawExt.startsWith(".") ? rawExt : `.${rawExt}`;
+    const tempInput = path.join(tempDir, `reel_${reelId}_in${safeExt}`);
+    const finalMp4Path = path.join(mediaDir, `reel_${reelId}.mp4`);
 
-    // Process Cover
     const coverExt = path.extname(coverFile.originalname) || ".jpg";
     const coverName = `cover_${uuidv4()}${coverExt}`;
-    fs.writeFileSync(path.join(mediaDir, coverName), coverFile.buffer);
+    const coverPath = path.join(mediaDir, coverName);
+
+    const processVideo = async (): Promise<string> => {
+      await fsp.writeFile(tempInput, videoFile.buffer);
+      let storedFileName: string;
+      try {
+        await compressReelVideo(tempInput, finalMp4Path);
+        storedFileName = `reel_${reelId}.mp4`;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          "[ReelService] FFmpeg compress failed, storing original file:",
+          msg,
+        );
+        storedFileName = `reel_${reelId}${safeExt}`;
+        await fsp.copyFile(tempInput, path.join(mediaDir, storedFileName));
+      } finally {
+        await fsp.unlink(tempInput).catch(() => undefined);
+      }
+      return storedFileName;
+    };
+
+    const [videoName] = await Promise.all([
+      processVideo(),
+      fsp.writeFile(coverPath, coverFile.buffer),
+    ]);
 
     // Parse incoming data safely
     const hashtags = body.hashtags
@@ -82,9 +126,42 @@ export class ReelService {
   }
 
   async getTrendingAudio(limit: number = 10) {
+    const now = Date.now();
+    const c = this.trendingAudioCache;
+    if (
+      c &&
+      c.limit === limit &&
+      now - c.at < this.TRENDING_AUDIO_TTL_MS
+    ) {
+      return c.data;
+    }
+
+    let inflight = this.trendingAudioInFlight.get(limit);
+    if (!inflight) {
+      // Register before any await so concurrent requests get the same Promise (microtask).
+      inflight = Promise.resolve()
+        .then(() => this.loadTrendingAudioAggregate(limit))
+        .then((data) => {
+          this.trendingAudioCache = {
+            at: Date.now(),
+            limit,
+            data,
+          };
+          return data;
+        })
+        .finally(() => {
+          this.trendingAudioInFlight.delete(limit);
+        });
+      this.trendingAudioInFlight.set(limit, inflight);
+    }
+
+    return inflight;
+  }
+
+  private async loadTrendingAudioAggregate(limit: number): Promise<unknown[]> {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    const trendingAudio = await this.reelModel.aggregate([
+    return this.reelModel.aggregate([
       {
         $match: {
           audioId: { $ne: null },
@@ -107,9 +184,8 @@ export class ReelService {
           as: "audioDetails",
         },
       },
-      { $unwind: "$audioDetails" }, // Unpack the array created by $lookup
+      { $unwind: "$audioDetails" },
       {
-        // Format the final output cleanly for the frontend
         $project: {
           _id: 0,
           audioId: "$_id",
@@ -121,8 +197,6 @@ export class ReelService {
         },
       },
     ]);
-
-    return trendingAudio;
   }
 
   async toggleLike(user: any, reelId: string) {
@@ -136,7 +210,7 @@ export class ReelService {
       const updatedReel = await this.reelModel.findByIdAndUpdate(
         reelId,
         { $inc: { likesCount: -1 } },
-        { new: true },
+        { new: true, lean: true, select: "likesCount" },
       );
       return {
         liked: false,
@@ -147,7 +221,7 @@ export class ReelService {
       const updatedReel = await this.reelModel.findByIdAndUpdate(
         reelId,
         { $inc: { likesCount: 1 } },
-        { new: true },
+        { new: true, lean: true, select: "likesCount" },
       );
       return { liked: true, likesCount: updatedReel?.likesCount || 1 };
     }
@@ -185,71 +259,166 @@ export class ReelService {
   }
 
   async incrementShare(reelId: string) {
+    if (!reelId?.trim()) {
+      throw new BadRequestException("Reel ID is required");
+    }
     const updatedReel = await this.reelModel.findByIdAndUpdate(
-      reelId,
+      reelId.trim(),
       { $inc: { sharesCount: 1 } },
-      { new: true },
+      { new: true, lean: true, select: "sharesCount" },
     );
-    return { sharesCount: updatedReel?.sharesCount || 0 };
+    if (!updatedReel) {
+      throw new NotFoundException("Reel not found");
+    }
+    return { sharesCount: updatedReel.sharesCount ?? 0 };
   }
 
   async incrementDownload(reelId: string) {
+    if (!reelId?.trim()) {
+      throw new BadRequestException("Reel ID is required");
+    }
     const updatedReel = await this.reelModel.findByIdAndUpdate(
-      reelId,
+      reelId.trim(),
       { $inc: { downloadsCount: 1 } },
-      { new: true }, // Assuming you added downloadsCount to schema
+      { new: true, lean: true, select: "downloadsCount" },
     );
-    return { downloadsCount: updatedReel?.downloadsCount || 0 };
+    if (!updatedReel) {
+      throw new NotFoundException("Reel not found");
+    }
+    return { downloadsCount: updatedReel.downloadsCount ?? 0 };
   }
 
-  async getReelsFeed(currentUser: any, limit: number = 5) {
-    // Look at reels from the last 30 days to keep the feed highly relevant
+  private encodeFeedCursor(createdAt: Date, id: Types.ObjectId): string {
+    return Buffer.from(
+      JSON.stringify({ c: createdAt.toISOString(), i: id.toString() }),
+      "utf8",
+    ).toString("base64url");
+  }
+
+  private decodeFeedCursor(raw: string): { createdAt: Date; _id: Types.ObjectId } {
+    try {
+      const j = JSON.parse(
+        Buffer.from(raw, "base64url").toString("utf8"),
+      ) as { c: string; i: string };
+      const createdAt = new Date(j.c);
+      const _id = new Types.ObjectId(j.i);
+      if (Number.isNaN(createdAt.getTime())) {
+        throw new Error("bad date");
+      }
+      return { createdAt, _id };
+    } catch {
+      throw new BadRequestException("Invalid feed cursor");
+    }
+  }
+
+  /**
+   * Newest-first feed with cursor pagination (no $sample — scales on large collections).
+   * Pass `cursor` from the previous response's `nextCursor` for the next page.
+   */
+  async getReelsFeed(
+    currentUser: any,
+    limit: number = 5,
+    cursor?: string,
+  ): Promise<{ reels: any[]; nextCursor: string | null }> {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    // 1. Fetch a random, algorithmic batch of reels using $sample
-    const reels = await this.reelModel.aggregate([
-      {
-        $match: {
-          uploaderId: { $ne: currentUser._id }, // Don't show them their own reels
+    const filter: Record<string, unknown> = cursor?.trim()
+      ? (() => {
+          const { createdAt: cAt, _id: cId } = this.decodeFeedCursor(
+            cursor.trim(),
+          );
+          return {
+            $and: [
+              { uploaderId: { $ne: currentUser._id } },
+              { createdAt: { $gte: thirtyDaysAgo } },
+              {
+                $or: [
+                  { createdAt: { $lt: cAt } },
+                  { createdAt: cAt, _id: { $lt: cId } },
+                ],
+              },
+            ],
+          };
+        })()
+      : {
+          uploaderId: { $ne: currentUser._id },
           createdAt: { $gte: thirtyDaysAgo },
+        };
+
+    const likesColl = this.reelLikeModel.collection.name;
+    const userId = currentUser._id;
+
+    const pipeline: PipelineStage[] = [
+      { $match: filter },
+      { $sort: { createdAt: -1, _id: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: likesColl,
+          let: { rid: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$reelId", "$$rid"] },
+                    { $eq: ["$userId", userId] },
+                  ],
+                },
+              },
+            },
+            { $limit: 1 },
+            { $project: { _id: 1 } },
+          ],
+          as: "_likeHit",
         },
       },
-      // In a production app, you can add `{ likesCount: { $gte: 5 } }` here
-      // to only serve high-quality reels to the global feed.
-      { $sample: { size: limit } }, // This makes the feed endless and randomized
-      { $sort: { createdAt: -1 } }, // Sort the random batch so the newest plays first
-    ]);
+      {
+        $addFields: {
+          hasLiked: { $gt: [{ $size: "$_likeHit" }, 0] },
+        },
+      },
+      { $project: { _likeHit: 0 } },
+    ];
 
-    if (reels.length === 0) return [];
+    const enrichedReels = await this.reelModel.aggregate(pipeline).exec();
 
-    // 2. Check if the current user has liked these specific reels
-    const reelIds = reels.map((r) => r._id);
-    const userLikes = await this.reelLikeModel
-      .find({
-        userId: currentUser._id,
-        reelId: { $in: reelIds },
-      })
-      .lean();
+    if (enrichedReels.length === 0) {
+      return { reels: [], nextCursor: null };
+    }
 
-    const likedReelIds = new Set(userLikes.map((l) => l.reelId.toString()));
+    const lastRaw = enrichedReels[enrichedReels.length - 1] as Record<
+      string,
+      unknown
+    > & {
+      _id: Types.ObjectId;
+    };
+    const lastCreated = lastRaw.createdAt as Date | string | undefined;
+    const nextCursor =
+      enrichedReels.length === limit
+        ? this.encodeFeedCursor(
+            lastCreated instanceof Date
+              ? lastCreated
+              : new Date(String(lastCreated)),
+            lastRaw._id,
+          )
+        : null;
 
-    // 3. Attach the `hasLiked` state
-    const enrichedReels = reels.map((reel) => ({
-      ...reel,
-      hasLiked: likedReelIds.has(reel._id.toString()),
-    }));
-
-    return enrichedReels;
+    return { reels: enrichedReels, nextCursor };
   }
 
   async incrementView(reelId: string) {
-    // Every time a user watches a reel for > 3 seconds, the frontend should hit this endpoint.
+    if (!reelId?.trim()) {
+      throw new BadRequestException("Reel ID is required");
+    }
     const updatedReel = await this.reelModel.findByIdAndUpdate(
-      reelId,
+      reelId.trim(),
       { $inc: { viewsCount: 1 } },
-      { new: true },
+      { new: true, lean: true, select: "viewsCount" },
     );
-
-    return { viewsCount: updatedReel?.viewsCount || 0 };
+    if (!updatedReel) {
+      throw new NotFoundException("Reel not found");
+    }
+    return { viewsCount: updatedReel.viewsCount ?? 0 };
   }
 }

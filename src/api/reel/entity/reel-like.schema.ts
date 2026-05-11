@@ -14,3 +14,5 @@ export class ReelLike {
 
 export const ReelLikeSchema = SchemaFactory.createForClass(ReelLike);
 ReelLikeSchema.index({ reelId: 1, userId: 1 }, { unique: true });
+// Feed enrichment: find likes by user + reel ids
+ReelLikeSchema.index({ userId: 1, reelId: 1 });
