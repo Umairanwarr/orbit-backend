@@ -158,6 +158,22 @@ export class StoryService extends BaseService<IStory> {
                     .exec();
         }
 
+    /** Stories of given types for user with createdAt in [fromInclusive, toInclusive] (calendar-day free quota). */
+    async countStoriesByUserBetween(
+        userId: string,
+        fromInclusive: Date,
+        toInclusive: Date,
+        storyTypes: StoryType[],
+    ): Promise<number> {
+        return this.model
+            .countDocuments({
+                userId,
+                storyType: { $in: storyTypes },
+                createdAt: { $gte: fromInclusive, $lte: toInclusive },
+            } as any)
+            .exec();
+    }
+
     private async _deleteAll() {
       await  this.model.deleteMany({});
         console.log("Done")

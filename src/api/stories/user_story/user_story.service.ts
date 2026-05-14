@@ -1,5 +1,6 @@
 
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable } from "@nestjs/common";
+import { startOfDay, endOfDay } from "date-fns";
 import {StoryService} from "../story/story.service";
 import {CreateStoryDto} from "./dto/story.dto";
 import {resOK} from "../../../core/utils/res.helpers";
@@ -43,22 +44,28 @@ export class UserStoryService {
     }
 
     async create(dto: CreateStoryDto) {
-        // Story subscription gating: 1 free story per type, then subscription required
+        // Story subscription gating: 1 free story per calendar day (all gated types combined), then subscription required.
+        // Day boundaries follow the Node process timezone (set TZ e.g. Africa/Nairobi on the server for local users).
         try {
             const userId = dto?.myUser?._id?.toString?.() ?? dto?.myUser?._id;
             const freeLimit = 1;
             const gatedTypes = [StoryType.Text, StoryType.Image, StoryType.Video, StoryType.Voice];
 
             if (userId && gatedTypes.includes(dto.storyType)) {
-                const postedCount = await this.storyService.countStoriesByUserIdAndType(
+                const now = new Date();
+                const dayStart = startOfDay(now);
+                const dayEnd = endOfDay(now);
+                const postedToday = await this.storyService.countStoriesByUserBetween(
                     userId,
-                    dto.storyType,
+                    dayStart,
+                    dayEnd,
+                    gatedTypes,
                 );
-                if (postedCount >= freeLimit) {
+                if (postedToday >= freeLimit) {
                     const hasActive = await this.storySubs.hasActive(userId);
                     if (!hasActive) {
                         throw new HttpException(
-                            `STORY_SUBSCRIPTION_REQUIRED|type=${dto.storyType}|limit=${freeLimit}|count=${postedCount}`,
+                            `STORY_SUBSCRIPTION_REQUIRED|calendarDay=1|limit=${freeLimit}|count=${postedToday}|type=${dto.storyType}`,
                             HttpStatus.PAYMENT_REQUIRED,
                         );
                     }
