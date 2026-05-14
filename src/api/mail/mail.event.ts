@@ -43,7 +43,7 @@ export class MailEvent {
                 })
             } as any;
             if (event.mailType == MailType.ResetPassword) {
-                this.mailerService.sendMail({
+                await this.mailerService.sendMail({
                     to: event.user.email,
                     subject: "Reset your Orbit Chat password",
                     template: "./password_reset",
@@ -52,40 +52,20 @@ export class MailEvent {
                         code: event.code,
                         appName: appConfig.appName,
                     },
-                    text: `Hi ${event.user.fullName},\n\nReset your Orbit Chat password using this link (valid for 15 minutes):\n${event.code}\n\nIf you did not request a password reset, you can ignore this email.`,
+                    text: `Hi ${event.user.fullName},\n\nYour Orbit Chat password reset code is: ${event.code}. It expires in 15 minutes.\n\nIf you did not request a password reset, you can ignore this email.`,
                     headers: sgHeaders,
-                }).then(value => {
                 });
             } else if (event.mailType == MailType.VerifyEmail) {
-                // If event.code holds a URL (link-based verification), send it as 'link'
-                const isLink = typeof event.code === 'string' && event.code.startsWith('http');
-                let appLink: string | undefined = undefined;
-                if (isLink) {
-                    try {
-                        const u = new URL(event.code);
-                        const t = u.searchParams.get('token') || '';
-                        const em = u.searchParams.get('email') || event.user.email || '';
-                        appLink = `com.orbit.ke://verify?email=${encodeURIComponent(em)}&token=${encodeURIComponent(t)}&verified=1`;
-                    } catch (e) {}
-                }
                 await this.mailerService.sendMail({
                     to: event.user.email,
                     subject: "Verify your email for Orbit Chat",
                     template: "./email_verification",
-                    context: isLink ? {
-                        name: event.user.fullName,
-                        link: event.code,
-                        webLink: event.code,
-                        appLink: appLink,
-                        appName: appConfig.appName,
-                    } : {
+                    context: {
                         name: event.user.fullName,
                         code: event.code,
                         appName: appConfig.appName,
                     },
-                    text: isLink
-                        ? `Hi ${event.user.fullName},\n\nVerify your Orbit Chat email by opening this link (valid for 15 minutes):\n${event.code}`
-                        : `Hi ${event.user.fullName},\n\nYour Orbit Chat verification code is: ${event.code}. This code will expire in 15 minutes.`,
+                    text: `Hi ${event.user.fullName},\n\nYour Orbit Chat verification code is: ${event.code}. This code will expire in 15 minutes.`,
                     headers: sgHeaders,
                 }).then(value => {
                 });

@@ -4,7 +4,7 @@
  * MIT license that can be found in the LICENSE file.
  */
 
-import {IsDefined, IsEmail, IsNotEmpty, IsNumberString, MaxLength} from "class-validator";
+import {IsEmail, IsNotEmpty, IsNumberString, MaxLength, MinLength} from "class-validator";
 // import CommonDto from "../../../core/common/common.dto";
 
 export default class ResetPasswordDto   {
@@ -20,8 +20,9 @@ export default class ResetPasswordDto   {
 
     @IsNotEmpty()
     @IsNumberString()
+    @MinLength(6)
     @MaxLength(6)
-    code: number;
+    code: string;
 
 
 }
