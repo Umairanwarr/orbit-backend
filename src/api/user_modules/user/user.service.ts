@@ -51,8 +51,10 @@ export class UserService extends BaseService<IUser> {
     // 2. EXCLUDE DELETED USERS
     query.deletedAt = null;
 
-    // 3. RESPECT PRIVACY SETTINGS
-    query["userPrivacy.publicSearch"] = true;
+    // 3. ONLY SHOW REGISTERED/ACCEPTED USERS
+    // App user lists must include every active registered user, even if the
+    // user disabled public search visibility.
+    query.registerStatus = RegisterStatus.accepted;
 
     // 4. GENDER FILTER
     if (filters.gender) {

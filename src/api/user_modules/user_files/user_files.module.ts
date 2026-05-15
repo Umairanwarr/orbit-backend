@@ -13,7 +13,7 @@ import { MessageSchema } from "../../../chat/message/entities/message.entity";
 import { MessageModule } from "../../../chat/message/message.module";
 import { RoomMemberSchema } from "../../../chat/room_member/entities/room_member.entity";
 import { RoomMiddlewareModule } from "../../../chat/room_middleware/room_middleware.module";
-import { AuthModule } from "../../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { SocketIoModule } from "../../../chat/socket_io/socket_io.module";
 import { FileUploaderModule } from "../../../common/file_uploader/file_uploader.module";
 import { UserModule } from "../user/user.module";
@@ -34,7 +34,7 @@ import { UserModule } from "../user/user.module";
         ]),
         MessageModule,
         RoomMiddlewareModule,
-        AuthModule,
+        AuthClientModule,
         SocketIoModule,
         FileUploaderModule,
         UserModule

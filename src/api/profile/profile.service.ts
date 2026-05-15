@@ -35,7 +35,6 @@ import { CreateReportSystemDto } from "../report_system/dto/create-report_system
 import { ReportSystemService } from "../report_system/report_system.service";
 import { AdminNotificationService } from "../admin_notification/admin_notification.service";
 import { SocketIoService } from "../../chat/socket_io/socket_io.service";
-import { AuthService } from "../auth/auth.service";
 import { PaginationParameters } from "mongoose-paginate-v2";
 import { NotificationEmitterService } from "../../common/notification_emitter/notification_emitter.service";
 import { NotificationData } from "../../common/notification_emitter/notification.event";
@@ -73,7 +72,6 @@ export class ProfileService {
   constructor(
     private readonly userService: UserService,
     private readonly userDevice: UserDeviceService,
-    private readonly authService: AuthService,
     private readonly banServer: UserBanService,
     private readonly ioService: SocketIoService,
     private s3: FileUploaderService,
@@ -666,7 +664,7 @@ export class ProfileService {
       dto.myUser._id,
       "+password userDevice lastMail banTo email registerStatus"
     );
-    await this.authService.comparePassword(
+    await this.comparePassword(
       dto.oldPassword,
       foundedUser.password
     );

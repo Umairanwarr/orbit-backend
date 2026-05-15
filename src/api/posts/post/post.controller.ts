@@ -1,6 +1,7 @@
 import {
   Get, Post, Put, Delete, Body, Param, Query,
   UseGuards, Req, UseInterceptors, UploadedFiles, BadRequestException, NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { PostService } from './post.service';
@@ -11,6 +12,8 @@ import { FileUploaderService } from 'src/common/file_uploader/file_uploader.serv
 import { CreateS3UploaderDto } from 'src/common/file_uploader/create-s3_uploader.dto';
 import { PostType } from './entities/post.entity';
 import { resOK } from 'src/core/utils/res.helpers';
+import { ConfigService } from "@nestjs/config";
+import axios from "axios";
 
 @V1Controller('posts')
 @UseGuards(VerifiedAuthGuard)
@@ -18,6 +21,7 @@ export class PostController {
   constructor(
     private readonly postService: PostService,
     private readonly fileUploaderService: FileUploaderService,
+    private readonly config: ConfigService,
   ) {}
 
   // ─── Upload + create (multipart) ────────────────────────────────────────────
@@ -93,8 +97,81 @@ export class PostController {
 
   @Get('reels')
   async findReels(@Query('page') page: number = 1, @Query('limit') limit: number = 20, @Req() req: any) {
-    const currentUserId = req.user?._id?.toString() || req.user?.id?.toString();
-    return resOK(await this.postService.findReels(page, limit, currentUserId));
+    const base = this.config
+      .get<string>("REELS_STORY_SERVICE_BASE_URL", "")
+      .replace(/\/+$/, "");
+    if (!base) {
+      throw new ServiceUnavailableException(
+        "REELS_STORY_SERVICE_BASE_URL is not configured"
+      );
+    }
+
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.max(1, Math.min(30, Number(limit) || 20));
+    const headers: Record<string, string> = {};
+    const authHeader =
+      (req.headers?.authorization as string) ??
+      (req.headers?.Authorization as string);
+    if (authHeader) headers.Authorization = authHeader;
+
+    let cursor: string | undefined;
+    let feedPayload: any = { data: [], nextCursor: null };
+
+    for (let i = 1; i <= safePage; i++) {
+      const feedRes = await axios.get(`${base}/api/v1/reels/feed`, {
+        params: { limit: safeLimit, ...(cursor ? { cursor } : {}) },
+        headers,
+        timeout: 15000,
+      });
+      feedPayload = feedRes?.data ?? { data: [], nextCursor: null };
+      if (i < safePage) {
+        cursor = feedPayload?.nextCursor || undefined;
+        if (!cursor) break;
+      }
+    }
+
+    const reels = Array.isArray(feedPayload?.data) ? feedPayload.data : [];
+    const docs = reels.map((reel: any) => {
+      const uploader = reel?.uploaderData ?? {};
+      return {
+        _id: reel?._id,
+        userId: {
+          _id: uploader?._id ?? reel?.uploaderId ?? "",
+          fullName: uploader?.fullName ?? "",
+          userImage: uploader?.userImage ?? "",
+          username: uploader?.username ?? "",
+          isFollowing: uploader?.isFollowing === true,
+        },
+        postType: "reel",
+        caption: reel?.caption ?? "",
+        mentionedUsers: [],
+        hashtags: Array.isArray(reel?.hashtags) ? reel.hashtags : [],
+        media: {
+          url: reel?.mediaUrl ?? "",
+          thumbnail: reel?.coverUrl ?? "",
+          mimeType: "video/mp4",
+        },
+        mediaUrls: reel?.mediaUrl ? [reel.mediaUrl] : [],
+        location: null,
+        likesCount: reel?.likesCount ?? 0,
+        viewsCount: reel?.viewsCount ?? 0,
+        commentsCount: reel?.commentsCount ?? 0,
+        sharesCount: reel?.sharesCount ?? 0,
+        likedBy: reel?.hasLiked === true ? [req.user?._id ?? "me"] : [],
+        currentUserId: req.user?._id?.toString?.() ?? "",
+        isReel: true,
+        createdAt: reel?.createdAt ?? new Date().toISOString(),
+      };
+    });
+
+    return resOK({
+      docs,
+      total: docs.length,
+      page: safePage,
+      limit: safeLimit,
+      totalPages: feedPayload?.nextCursor ? safePage + 1 : safePage,
+      nextCursor: feedPayload?.nextCursor ?? null,
+    });
   }
 
   @Get('my')

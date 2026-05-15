@@ -2,7 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { MongooseModule } from "@nestjs/mongoose";
 import { ScheduleModule } from "@nestjs/schedule";
-import { AuthModule } from "../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { MailEmitterModule } from "../mail/mail.emitter.module";
 import { MessageSchema } from "../../chat/message/entities/message.entity";
 import { UserFollowSchema } from "../user_modules/user_follow/entities/user_follow.entity";
@@ -24,7 +24,7 @@ import {
   imports: [
     ConfigModule,
     ScheduleModule,
-    AuthModule,
+    AuthClientModule,
     MailEmitterModule,
     MongooseModule.forFeature([
       { name: EmailBackupSettings.name, schema: EmailBackupSettingsSchema },

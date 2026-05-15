@@ -9,7 +9,7 @@ import { SupportDonationSchema } from "../../live_stream/schemas/support_donatio
 import { MusicSupportSchema } from "../../music/schemas/music_support.schema";
 import { ArticleSupportSchema } from "../../articles/schemas/article_support.schema";
 import { AdSubmissionSchema } from "../../ads/schemas/ad_submission.schema";
-import { AuthModule } from "../../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { UserModule } from "../../user_modules/user/user.module";
 import { AdsModule } from "../../ads/ads.module";
 
@@ -24,7 +24,7 @@ import { AdsModule } from "../../ads/ads.module";
       { name: 'ArticleSupport', schema: ArticleSupportSchema },
       { name: 'AdSubmission', schema: AdSubmissionSchema },
     ]),
-    AuthModule,
+    AuthClientModule,
     UserModule,
     AdsModule,
   ],

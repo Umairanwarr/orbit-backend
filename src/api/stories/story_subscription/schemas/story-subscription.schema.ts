@@ -24,8 +24,16 @@ export class StorySubscription {
 
   @Prop({ type: String, required: false, index: true })
   orderTrackingId?: string;
+
+  @Prop({ type: String, required: false })
+  paymentMethod?: string;
+
+  @Prop({ type: Number, required: false })
+  amountPaid?: number;
+
+  @Prop({ type: String, required: false })
+  currency?: string;
 }
 
 export const StorySubscriptionSchema =
   SchemaFactory.createForClass(StorySubscription);
-

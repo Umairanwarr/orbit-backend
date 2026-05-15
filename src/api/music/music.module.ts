@@ -4,7 +4,7 @@ import { MusicSchema } from "./music.entity";
 import { MusicService } from "./music.service";
 import { MusicController } from "./music.controller";
 import { MusicPublicController } from "./music_public.controller";
-import { AuthModule } from "../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { FileUploaderModule } from "../../common/file_uploader/file_uploader.module";
 import { UserModule } from "../user_modules/user/user.module";
 import { VerifiedAuthGuard } from "../../core/guards/verified.auth.guard";
@@ -29,7 +29,7 @@ import { MusicQueueSchema } from "./schemas/music-queue.schema";
       { name: "music_history", schema: MusicHistorySchema },
       { name: "music_queue", schema: MusicQueueSchema },
     ]),
-    AuthModule,
+    AuthClientModule,
     FileUploaderModule,
     UserModule,
     PesapalModule,

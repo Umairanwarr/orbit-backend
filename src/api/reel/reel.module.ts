@@ -8,14 +8,14 @@ import { Reel, ReelSchema } from "./entity/reel.schema";
 import { ReelLike, ReelLikeSchema } from "./entity/reel-like.schema";
 import { ReelComment, ReelCommentSchema } from "./entity/reel-comment.schema";
 import { MusicSchema } from "../music/music.entity";
-import { AuthModule } from "../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
 // If you need to populate the Audio, you need to import the Music schema.
 // Assuming it is exported from your MusicModule.
 
 @Module({
   imports: [
-    AuthModule,
+    AuthClientModule,
     MongooseModule.forFeature([
       { name: Reel.name, schema: ReelSchema },
       { name: ReelLike.name, schema: ReelLikeSchema },

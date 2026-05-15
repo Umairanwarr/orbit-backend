@@ -1,10 +1,10 @@
 import { BadRequestException, CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
-import { AuthService } from '../../api/auth/auth.service';
+import { AuthClientService } from '../../common/auth_client/auth_client.service';
 import { UserRole } from '../utils/enums';
 
 @Injectable()
 export class IsSellerGuard implements CanActivate {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authClient: AuthClientService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
@@ -16,7 +16,7 @@ export class IsSellerGuard implements CanActivate {
     const token = authorization.split('Bearer ')[1];
     if (!token) throw new BadRequestException('Token after Bearer" "must be starting ');
 
-    const user = await this.authService.getVerifiedUser(token);
+    const user = await this.authClient.getVerifiedUser(token);
     const roles: any[] = Array.isArray((user as any)?.roles) ? (user as any).roles : [];
     if (!roles.includes(UserRole.Seller)) {
       throw new BadRequestException('Only seller users can access this endpoint');

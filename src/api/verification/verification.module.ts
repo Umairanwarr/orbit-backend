@@ -8,7 +8,7 @@ import { VerificationService } from './verification.service';
 import { VerificationController } from './verification.controller';
 import { FileUploaderModule } from '../../common/file_uploader/file_uploader.module';
 import { AppConfigModule } from '../app_config/app_config.module';
-import { AuthModule } from '../auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { UserModule } from '../user_modules/user/user.module';
 import { VerificationExpiryCron } from './verification_expiry.cron';
 
@@ -19,7 +19,7 @@ import { VerificationExpiryCron } from './verification_expiry.cron';
     ]),
     FileUploaderModule,
     AppConfigModule,
-    AuthModule,
+    AuthClientModule,
     UserModule,
   ],
   providers: [VerificationService, VerificationExpiryCron],

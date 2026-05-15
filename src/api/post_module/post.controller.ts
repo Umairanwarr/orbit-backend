@@ -25,6 +25,15 @@ import { CreateCommentDto } from "./dto/create-comment.dto";
 export class PostController {
   constructor(private readonly postService: PostService) {}
 
+  @Post()
+  async createTextPost(@Req() req: any, @Body() body: CreatePostDto) {
+    const doc = await this.postService.createTextPost(req.user, body);
+    return {
+      success: true,
+      data: doc,
+    };
+  }
+
   @Post("single")
   @UseInterceptors(
     FileInterceptor("file", {

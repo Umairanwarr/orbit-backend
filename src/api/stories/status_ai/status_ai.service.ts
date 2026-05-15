@@ -146,22 +146,10 @@ export class StatusAiService {
     suggestions: StatusAiSuggestionResult;
   }> {
     const analysis = await this.analyze(input);
-    const suggestions = await this.suggestions(input);
-
-    const shouldSuggestCaption =
-      !input.caption || input.caption.toString().trim().length === 0;
-    let suggestedCaption: string | undefined = undefined;
-    if (shouldSuggestCaption) {
-      const cap = await this.generateCaption({
-        storyType: input.storyType,
-        text: input.text,
-        existingCaption: input.caption,
-        mimeType: input.mimeType,
-      });
-      suggestedCaption = cap.caption || undefined;
-    }
-
-    return { analysis, suggestions, suggestedCaption };
+    return {
+      analysis,
+      suggestions: { captions: [], hashtags: [], emojis: [], filters: [] },
+    };
   }
 
   private _fallbackCaption(
@@ -426,4 +414,3 @@ export class StatusAiService {
     return Array.from(new Set(arr));
   }
 }
-

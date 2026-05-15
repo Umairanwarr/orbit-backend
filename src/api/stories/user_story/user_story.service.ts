@@ -117,11 +117,6 @@ export class UserStoryService {
                 );
             }
 
-            // Auto-fill caption if empty
-            if ((!dto.caption || dto.caption.toString().trim().length === 0) && pipeline.suggestedCaption) {
-                dto.caption = pipeline.suggestedCaption;
-            }
-
             // Attach AI metadata into the story attachment payload (no schema change required)
             dto.att = {
                 ...(dto.att || {}),

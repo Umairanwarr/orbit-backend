@@ -17,11 +17,11 @@ export class Post {
   };
 
   // Supports features 1, 2, and 3
-  @Prop({ type: String, enum: ["photo", "video", "carousel"], required: true })
+  @Prop({ type: String, enum: ["photo", "video", "carousel", "text"], required: true })
   mediaType: string;
 
   // Array to hold one or multiple URLs for the carousel
-  @Prop({ type: [String], required: true })
+  @Prop({ type: [String], default: [] })
   mediaUrls: string[];
 
   // Essential for video posts

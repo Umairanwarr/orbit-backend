@@ -11,7 +11,7 @@ import {AdminPanelController} from "./admin_panel.controller";
 import {AppConfigModule} from "../app_config/app_config.module";
 import {ConfigModule} from "@nestjs/config";
 import {NotificationEmitterModule} from "../../common/notification_emitter/notification_emitter.module";
-import {AuthModule} from "../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import {UserModule} from "../user_modules/user/user.module";
 import {FileUploaderModule} from "../../common/file_uploader/file_uploader.module";
 import {UserDeviceModule} from "../user_modules/user_device/user_device.module";
@@ -66,7 +66,7 @@ import { ArticlesModule } from "../articles/articles.module";
         ]),
         LiveStreamModule,
         UserModule,
-        AuthModule,
+        AuthClientModule,
         FileUploaderModule,
         NotificationEmitterModule,
         ConfigModule,

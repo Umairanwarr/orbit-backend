@@ -3,14 +3,14 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { DriverPresenceSchema } from './driver_presence.entity';
 import { DriverPresenceService } from './driver_presence.service';
 import { DriverPresenceController } from './driver_presence.controller';
-import { AuthModule } from '../auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: 'DriverPresence', schema: DriverPresenceSchema },
     ]),
-    AuthModule,
+    AuthClientModule,
   ],
   controllers: [DriverPresenceController],
   providers: [DriverPresenceService],

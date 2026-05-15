@@ -5,11 +5,11 @@
  */
 
 import {Injectable, CanActivate, ExecutionContext, BadRequestException} from "@nestjs/common";
-import { AuthService } from "../../api/auth/auth.service";
+import { AuthClientService } from "../../common/auth_client/auth_client.service";
 
 @Injectable()
 export class VerifiedAuthGuard implements CanActivate {
-    constructor(private readonly authService: AuthService) {
+    constructor(private readonly authClient: AuthClientService) {
     }
 
     async canActivate(
@@ -22,7 +22,7 @@ export class VerifiedAuthGuard implements CanActivate {
             throw new BadRequestException("authorization key in headers is must start with Bearer");
         let token = authorization.split("Bearer ")[1];
         if (!token) throw new BadRequestException("Token after Bearer\" \"must be starting ");
-        request.user = await this.authService.getVerifiedUser(token);
+        request.user = await this.authClient.getVerifiedUser(token);
         return true;
     }
 }

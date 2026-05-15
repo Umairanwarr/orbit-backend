@@ -8,11 +8,11 @@ import { EscrowSettlementService } from "./escrow-settlement.cron";
 import { WalletTransfer, WalletTransferSchema } from "./wallet-transfer.schema";
 import { UserSchema } from "src/api/user_modules/user/entities/user.entity";
 import { AppConfigSchema } from "src/api/app_config/entities/app_config.entity";
-import { AuthModule } from "src/api/auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
 @Module({
   imports: [
-    AuthModule,
+    AuthClientModule,
     MongooseModule.forFeature([
       { name: WalletTransfer.name, schema: WalletTransferSchema },
       { name: "User", schema: UserSchema },

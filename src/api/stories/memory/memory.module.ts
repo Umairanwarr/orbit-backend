@@ -9,7 +9,7 @@ import { MemoryController } from './memory.controller';
 import { MongooseModule } from "@nestjs/mongoose";
 import { MemorySchema } from "./entities/memory.entity";
 import { StoryModule } from "../story/story.module";
-import { AuthModule } from "../../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
 @Module({
   controllers: [MemoryController],
@@ -21,7 +21,7 @@ import { AuthModule } from "../../auth/auth.module";
       schema: MemorySchema
     }]),
     StoryModule,
-    AuthModule,
+    AuthClientModule,
   ]
 })
 export class MemoryModule {}

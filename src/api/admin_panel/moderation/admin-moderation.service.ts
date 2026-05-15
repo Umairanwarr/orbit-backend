@@ -2,13 +2,13 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { IMusic } from "src/api/music/music.entity";
-import { PostDocument } from "src/api/post_module/entity/post.schema";
+import { Post, PostDocument } from "src/api/posts/post/entities/post.entity";
 import { ReelDocument } from "src/api/reel/entity/reel.schema";
 
 @Injectable()
 export class AdminModerationService {
   constructor(
-    @InjectModel("Post") private readonly postModel: Model<PostDocument>,
+    @InjectModel(Post.name) private readonly postModel: Model<PostDocument>,
     @InjectModel("Reel") private readonly reelModel: Model<ReelDocument>,
     @InjectModel("Music") private readonly musicModel: Model<IMusic>,
   ) {}

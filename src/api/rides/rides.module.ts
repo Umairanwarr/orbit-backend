@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { RidesController } from './rides.controller';
 import { DriverPresenceModule } from '../drivers/driver_presence.module';
 import { SocketIoModule } from '../../chat/socket_io/socket_io.module';
-import { AuthModule } from '../auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { MongooseModule } from '@nestjs/mongoose';
 import { RideSchema } from './ride.entity';
 import { RatingSchema } from './rating.entity';
@@ -16,7 +16,7 @@ import { RatingsController } from './ratings.controller';
   imports: [
     DriverPresenceModule,
     SocketIoModule,
-    AuthModule,
+    AuthClientModule,
     MongooseModule.forFeature([
       { name: 'Ride', schema: RideSchema },
       // Use the same model token/collection name as DriverApplicationsModule

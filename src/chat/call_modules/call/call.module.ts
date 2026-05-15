@@ -12,7 +12,7 @@ import {SocketIoModule} from "../../socket_io/socket_io.module";
 import {CallMemberModule} from "../call_member/call_member.module";
 import {AppConfigModule} from "../../../api/app_config/app_config.module";
 import {UserModule} from "../../../api/user_modules/user/user.module";
-import {AuthModule} from "../../../api/auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import {NotificationEmitterModule} from "../../../common/notification_emitter/notification_emitter.module";
 import {UserBanModule} from "../../../api/user_modules/user_ban/user_ban.module";
 import {MessageModule} from "../../message/message.module";
@@ -29,7 +29,7 @@ import {RoomMemberModule} from "../../room_member/room_member.module";
     exports: [CallService],
     imports: [
         UserModule,
-        AuthModule,
+        AuthClientModule,
         RoomMiddlewareModule,
         UserBanModule,
         NotificationEmitterModule,

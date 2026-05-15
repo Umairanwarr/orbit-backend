@@ -6,7 +6,7 @@
 
 import { BadRequestException, CanActivate, ExecutionContext, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { AuthService } from "../../api/auth/auth.service";
+import { AuthClientService } from "../../common/auth_client/auth_client.service";
 import { UserRole } from "../../core/utils/enums";
 import { AppConfigService } from "../../api/app_config/app_config.service";
 import bcrypt from "bcrypt";
@@ -15,7 +15,7 @@ import bcrypt from "bcrypt";
 export class IsSuperAdminGuard implements CanActivate {
     constructor(
         readonly config: ConfigService,
-        private readonly authService: AuthService,
+        private readonly authClient: AuthClientService,
         private readonly appConfigService: AppConfigService,
     ) {}
 
@@ -29,7 +29,7 @@ export class IsSuperAdminGuard implements CanActivate {
         if (authHeader && authHeader.toString().startsWith("Bearer ")) {
             const token = authHeader.toString().split("Bearer ")[1];
             try {
-                const user = await this.authService.getVerifiedUser(token);
+                const user = await this.authClient.getVerifiedUser(token);
                 // Ensure roles include Admin
                 if (!user?.roles || !Array.isArray(user.roles) || !user.roles.includes(UserRole.Admin)) {
                     throw new BadRequestException("Only admin users can access the admin panel");

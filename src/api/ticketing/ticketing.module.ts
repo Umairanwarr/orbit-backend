@@ -12,12 +12,12 @@ import {
 import { UserSchema } from "../user_modules/user/entities/user.entity";
 import { AppConfigSchema } from "../app_config/entities/app_config.entity";
 import { AppConfigModule } from "../app_config/app_config.module";
-import { AuthModule } from "../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
 @Module({
   imports: [
     AppConfigModule,
-    AuthModule,
+    AuthClientModule,
     MongooseModule.forFeature([
       { name: TicketEvent.name, schema: TicketEventSchema },
       { name: TicketPurchase.name, schema: TicketPurchaseSchema },

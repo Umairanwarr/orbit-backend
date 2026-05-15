@@ -10,7 +10,7 @@ import { ScheduledMessageSchema } from './entities/scheduled.message.entity';
 import { ScheduledMessageService } from './scheduled_message.service';
 import { ChannelModule } from '../channel/channel.module';
 import { ScheduledMessageController } from './scheduled_message.controller';
-import { AuthModule } from '../../api/auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
 @Module({
   imports: [
@@ -18,7 +18,7 @@ import { AuthModule } from '../../api/auth/auth.module';
       { name: 'scheduled_message', schema: ScheduledMessageSchema },
     ]),
     ChannelModule,
-    AuthModule,
+    AuthClientModule,
   ],
   controllers: [ScheduledMessageController],
   exports: [

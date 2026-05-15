@@ -8,7 +8,7 @@ import { CommunityService } from './community.service';
 import { CommunitySchema } from './entities/community.entity';
 import { CommunityMemberSchema } from './entities/community_member.entity';
 import { CommunityAnnouncementSchema } from './entities/community_announcement.entity';
-import { AuthModule } from '../../api/auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { AppConfigModule } from '../../api/app_config/app_config.module';
 import { FileUploaderModule } from '../../common/file_uploader/file_uploader.module';
 import { UserModule } from '../../api/user_modules/user/user.module';
@@ -25,7 +25,7 @@ import { RoomMemberModule } from '../room_member/room_member.module';
       { name: 'community_member', schema: CommunityMemberSchema },
       { name: 'community_announcement', schema: CommunityAnnouncementSchema },
     ]),
-    AuthModule,
+    AuthClientModule,
     AppConfigModule,
     FileUploaderModule,
     UserModule,

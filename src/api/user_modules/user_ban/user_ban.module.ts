@@ -9,7 +9,7 @@ import { UserBanService } from './user_ban.service';
 import { UserBanController } from './user_ban.controller';
 import { BanModule } from "../../ban/ban.module";
 import { UserModule } from "../user/user.module";
-import { AuthModule } from "../../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { SocketIoModule } from "../../../chat/socket_io/socket_io.module";
 import { RoomMemberModule } from "../../../chat/room_member/room_member.module";
 import { RoomMiddlewareModule } from "../../../chat/room_middleware/room_middleware.module";
@@ -20,7 +20,7 @@ import { RoomMiddlewareModule } from "../../../chat/room_middleware/room_middlew
   imports:[
     BanModule,
     UserModule,
-    AuthModule,
+    AuthClientModule,
     SocketIoModule,
     RoomMemberModule,
     RoomMiddlewareModule

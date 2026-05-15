@@ -18,14 +18,23 @@ import { version } from "../package.json";
 
 import { AppController } from "./app.controller";
 
+import { AuthProxyController } from "./common/auth_proxy.controller";
 import { MediaProxyController } from "./common/media_proxy.controller";
+import { StoryInternalChatController } from "./common/story_internal_chat.controller";
+import {
+  PublicStoriesProxyController,
+  ReelsProxyController,
+  StatusAiProxyController,
+  StoryProxyController,
+  StorySubscriptionsProxyController,
+} from "./common/story_reels_proxy.controller";
 import { DiscoveryModule } from "./api/DiscoveryModule/discovery.module";
 import { AdminNotificationModule } from "./api/admin_notification/admin_notification.module";
 import { AdminPanelModule } from "./api/admin_panel/admin_panel.module";
 import { AdsModule } from "./api/ads/ads.module";
 import { AppConfigModule } from "./api/app_config/app_config.module";
 import { ArticlesModule } from './api/articles/articles.module';
-import { AuthModule } from "./api/auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { BanModule } from "./api/ban/ban.module";
 import { ICountry } from "./api/countries/countries.entity";
 import { CountriesModule } from "./api/countries/countries.module";
@@ -37,13 +46,13 @@ import { LiveStreamModule } from "./api/live_stream/live_stream.module";
 import { MailEmitterModule } from "./api/mail/mail.emitter.module";
 import { MarketplaceListingsModule } from './api/marketplace/marketplace_listings.module';
 import { MusicModule } from './api/music/music.module';
-import { PostModule } from "./api/post_module/post.module";
+import { PostModule } from "./api/posts/post/post.module";
 import { ProfileModule } from "./api/profile/profile.module";
-import { ReelModule } from "./api/reel/reel.module";
 import { ReportSystemModule } from "./api/report_system/report_system.module";
 import { RidesModule } from './api/rides/rides.module';
 import { SellerApplicationsModule } from './api/sellers/seller_applications.module';
 import { TicketingModule } from "./api/ticketing/ticketing.module";
+import { TicketsModule } from "./api/tickets/tickets.module";
 import { VerificationModule } from "./api/verification/verification.module";
 import { VersionsModule } from "./api/versions/versions.module";
 import { WithdrawRequestsModule } from './api/wallet/withdraw_requests.module';
@@ -70,10 +79,6 @@ import { AdminModerationModule } from "./api/admin_panel/moderation/admin_modera
 import { IAppConfig } from "./api/app_config/entities/app_config.entity";
 import { MpesaModule } from "./api/payments/mpesa/mpesa.module";
 import { PesapalModule } from "./api/payments/pesapal/pesapal.module";
-import { StoryModule } from "./api/stories/story/story.module";
-import { StoryAttachmentModule } from "./api/stories/story_attachment/story_attachment.module";
-import { UserStoryModule } from "./api/stories/user_story/user_story.module";
-import { StorySubscriptionModule } from "./api/stories/story_subscription/story_subscription.module";
 import { EmergencyContactModule } from './api/user_modules/emergency_contact/emergency_contact.module';
 import { LoyaltyPointsModule } from "./api/user_modules/loyalty_points/loyalty_points.module";
 import { UserModule } from "./api/user_modules/user/user.module";
@@ -124,7 +129,7 @@ import { EmailBackupModule } from "./api/email_backup/email-backup.module";
     EmailBackupModule,
     VersionsModule,
     AppConfigModule,
-    AuthModule,
+    AuthClientModule,
     FileUploaderModule,
     ProfileModule,
     UserBanModule,
@@ -150,13 +155,9 @@ import { EmailBackupModule } from "./api/email_backup/email-backup.module";
     CallModule,
     ChannelModule,
     AgoraModule,
-    StoryModule,
-    UserStoryModule,
-    StorySubscriptionModule,
     FirstRunModule,
     DbMigrateModule,
     ChatRequestModule,
-    StoryAttachmentModule,
     CallHistoryModule,
     UserFilesModule,
     LoyaltyPointsModule,
@@ -180,12 +181,22 @@ import { EmailBackupModule } from "./api/email_backup/email-backup.module";
     MarketplaceListingsModule,
     PostModule,
     DiscoveryModule,
-    ReelModule,
     WalletModule,
     AdminModerationModule,
     TicketingModule,
+    TicketsModule,
   ],
-  controllers: [AppController, MediaProxyController],
+  controllers: [
+    AppController,
+    AuthProxyController,
+    StoryProxyController,
+    StorySubscriptionsProxyController,
+    StatusAiProxyController,
+    PublicStoriesProxyController,
+    ReelsProxyController,
+    MediaProxyController,
+    StoryInternalChatController,
+  ],
   providers: [
     {
       provide: APP_FILTER,

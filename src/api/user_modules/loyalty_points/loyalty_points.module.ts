@@ -8,12 +8,12 @@ import { Module, forwardRef } from '@nestjs/common';
 import { LoyaltyPointsService } from './loyalty_points.service';
 import { LoyaltyPointsController } from './loyalty_points.controller';
 import { UserModule } from '../user/user.module';
-import { AuthModule } from '../../auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
 @Module({
   controllers: [LoyaltyPointsController],
   providers: [LoyaltyPointsService],
-  imports: [UserModule, forwardRef(() => AuthModule)],
+  imports: [UserModule, forwardRef(() => AuthClientModule)],
   exports: [LoyaltyPointsService]
 })
 export class LoyaltyPointsModule {}

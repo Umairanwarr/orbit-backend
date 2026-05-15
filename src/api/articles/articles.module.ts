@@ -3,7 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ArticleSchema } from './article.entity';
 import { ArticlesService } from './articles.service';
 import { ArticlesController } from './articles.controller';
-import { AuthModule } from '../auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { FileUploaderModule } from '../../common/file_uploader/file_uploader.module';
 import { UserModule } from '../user_modules/user/user.module';
 import { VerifiedAuthGuard } from '../../core/guards/verified.auth.guard';
@@ -24,7 +24,7 @@ import { UserDeviceModule } from '../user_modules/user_device/user_device.module
       { name: 'ArticleSupport', schema: ArticleSupportSchema },
       { name: 'article_reports', schema: ArticleReportSchema },
     ]),
-    AuthModule,
+    AuthClientModule,
     FileUploaderModule,
     UserModule,
     PesapalModule,

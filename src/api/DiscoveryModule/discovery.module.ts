@@ -2,14 +2,14 @@ import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import { DiscoveryController } from "./discovery.controller";
 import { DiscoveryService } from "./discovery.service";
-import { Post, PostSchema } from "../post_module/entity/post.schema";
+import { Post, PostSchema } from "../posts/post/entities/post.entity";
 import { UserSchema } from "../user_modules/user/entities/user.entity";
 import { UserModule } from "../user_modules/user/user.module";
-import { AuthModule } from "../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
 @Module({
   imports: [
-    AuthModule,
+    AuthClientModule,
     UserModule,
     MongooseModule.forFeature([
       { name: Post.name, schema: PostSchema },

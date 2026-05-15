@@ -11,7 +11,7 @@ import {MessageModule} from "../message/message.module";
 import {RoomMemberModule} from "../room_member/room_member.module";
 import {SocketIoModule} from "../socket_io/socket_io.module";
 import {FileUploaderModule} from "../../common/file_uploader/file_uploader.module";
-import {AuthModule} from "../../api/auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import {NotificationEmitterModule} from "../../common/notification_emitter/notification_emitter.module";
 import {SingleRoomSettingsModule} from "../single_room_settings/single_room_settings.module";
 import {GroupSettingsModule} from "../group_settings/group_settings.module";
@@ -58,7 +58,7 @@ import { DisappearingMessageCronService } from './services/disappearing_message.
         RoomMemberModule,
         SocketIoModule,
         FileUploaderModule,
-        AuthModule,
+        AuthClientModule,
         NotificationEmitterModule,
         SingleRoomSettingsModule,
         GroupSettingsModule,

@@ -8,11 +8,11 @@ import { Post, PostSchema } from "./entity/post.schema";
 import { Like, LikeSchema } from "./entity/like.schema";
 import { Comment, CommentSchema } from "./entity/comment.schema";
 import { Save, SaveSchema } from "./entity/save.schema";
-import { AuthModule } from "../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
-// If your VerifiedAuthGuard requires an AuthModule to be imported,
+// If your VerifiedAuthGuard requires an AuthClientModule to be imported,
 // make sure to import it here.
-// import { AuthModule } from '../auth/auth.module';
+// import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 
 @Module({
   imports: [
@@ -24,7 +24,7 @@ import { AuthModule } from "../auth/auth.module";
       { name: Save.name, schema: SaveSchema },
       // { name: Story.name, schema: StorySchema },
     ]),
-    AuthModule, // Uncomment if needed for your guards
+    AuthClientModule, // Uncomment if needed for your guards
   ],
   controllers: [PostController],
   providers: [PostService],

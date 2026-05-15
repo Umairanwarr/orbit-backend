@@ -26,6 +26,28 @@ export class PostService {
     private readonly commentModel: Model<CommentDocument>,
   ) {}
 
+  async createTextPost(
+    user: any,
+    body: CreatePostDto,
+  ): Promise<PostDocument> {
+    const newPost = await this.postModel.create({
+      uploaderId: user._id,
+      uploaderData: {
+        _id: user._id,
+        fullName: user.fullName,
+        userImage: user.userImage,
+      },
+      mediaType: "text",
+      mediaUrls: [],
+      caption: body.caption || "",
+      location: body.location,
+      hashtags: body.hashtags || [],
+      taggedUsers: body.taggedUsers || [],
+    });
+
+    return newPost;
+  }
+
   async createSingleMediaPost(
     user: any,
     file: Express.Multer.File,

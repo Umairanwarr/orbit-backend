@@ -52,6 +52,15 @@ export class StorySubscriptionController {
     return resOK(result);
   }
 
+  @Post("/subscribe/wallet")
+  async subscribeWithWallet(
+    @Req() req: any,
+    @Body() dto: CreateStorySubscriptionDto,
+  ) {
+    const userId = req.user?._id?.toString();
+    return resOK(await this.subs.activateWithWallet(userId, dto.plan));
+  }
+
   @Post("/confirm")
   async confirm(@Req() req: any, @Body() dto: ConfirmStorySubscriptionDto) {
     const userId = req.user?._id?.toString();
@@ -91,9 +100,11 @@ export class StorySubscriptionController {
       userId,
       plan: planKey as any,
       orderTrackingId: dto.orderTrackingId,
+      paymentMethod: "pesapal",
+      amountPaid: Number(tx?.amount ?? 0) || undefined,
+      currency: tx?.currency,
     });
 
     return resOK({ active: true, subscription: sub });
   }
 }
-

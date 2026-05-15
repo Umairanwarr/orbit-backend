@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { AuthModule } from '../auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { AppConfigModule } from '../app_config/app_config.module';
 import { FileUploaderModule } from '../../common/file_uploader/file_uploader.module';
 import { MarketplaceListingSchema } from './marketplace_listing.entity';
@@ -18,7 +18,7 @@ import { UserModule } from '../user_modules/user/user.module';
       { name: 'marketplace_listings', schema: MarketplaceListingSchema },
       { name: 'marketplace_listing_reports', schema: MarketplaceListingReportSchema },
     ]),
-    AuthModule,
+    AuthClientModule,
     AppConfigModule,
     FileUploaderModule,
     OrderRoomSettingsModule,

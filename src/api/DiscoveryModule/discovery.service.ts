@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
-import { Post, PostDocument } from "../post_module/entity/post.schema";
+import { Post, PostDocument } from "../posts/post/entities/post.entity";
 
 @Injectable()
 export class DiscoveryService {
@@ -93,7 +93,7 @@ export class DiscoveryService {
     const explorePosts = await this.postModel.aggregate([
       {
         $match: {
-          uploaderId: { $ne: new Types.ObjectId(currentUser._id) }, // Don't show their own posts
+          userId: { $ne: new Types.ObjectId(currentUser._id) }, // Don't show their own posts
           createdAt: { $gte: sevenDaysAgo }, // Only recent content
           likesCount: { $gte: 5 }, // Must have a baseline of engagement to be "recommended"
         },
@@ -112,7 +112,7 @@ export class DiscoveryService {
 
     const trendingReels = await this.postModel
       .find({
-        mediaType: "video",
+        postType: "video",
         createdAt: { $gte: sevenDaysAgo },
       })
       .sort({ likesCount: -1, commentsCount: -1 }) // Primary sort: Likes. Secondary sort: Comments.

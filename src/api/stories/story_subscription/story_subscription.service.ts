@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { AppConfigService } from "../../app_config/app_config.service";
+import { UserService } from "../../user_modules/user/user.service";
 import { StoryService } from "../story/story.service";
 import {
   StorySubscription,
@@ -16,6 +17,7 @@ export class StorySubscriptionService {
   constructor(
     private readonly config: ConfigService,
     private readonly appConfigService: AppConfigService,
+    private readonly userService: UserService,
     private readonly storyService: StoryService,
     @InjectModel(StorySubscription.name)
     private readonly model: Model<StorySubscriptionDocument>,
@@ -69,6 +71,10 @@ export class StorySubscriptionService {
 
   async getActive(userId: string) {
     const now = new Date();
+    await this.model.updateMany(
+      { userId, active: true, expiresAt: { $lte: now } },
+      { $set: { active: false } },
+    );
     return this.model
       .findOne({
         userId,
@@ -124,6 +130,9 @@ export class StorySubscriptionService {
     userId: string;
     plan: StorySubscriptionPlan;
     orderTrackingId?: string;
+    paymentMethod?: string;
+    amountPaid?: number;
+    currency?: string;
   }) {
     const now = new Date();
     const expiresAt = this._calcExpiry(now, params.plan);
@@ -140,9 +149,42 @@ export class StorySubscriptionService {
       active: true,
       activatedAt: now,
       orderTrackingId: params.orderTrackingId,
+      paymentMethod: params.paymentMethod,
+      amountPaid: params.amountPaid,
+      currency: params.currency,
     });
 
     return this.model.findById(doc._id).lean();
+  }
+
+  async activateWithWallet(userId: string, planKey: StorySubscriptionPlan) {
+    const plan = await this.getPlanOrThrow(planKey);
+    const amount = Number(plan.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException("Invalid subscription amount");
+    }
+
+    const user = await this.userService.subtractFromBalanceAtomic(userId, amount);
+    try {
+      const sub = await this.activate({
+        userId,
+        plan: plan.key,
+        orderTrackingId: `WALLET-${Date.now()}-${userId}`,
+        paymentMethod: "wallet",
+        amountPaid: amount,
+        currency: plan.currency,
+      });
+      return {
+        active: true,
+        subscription: sub,
+        balance: Number((user as any)?.balance ?? 0),
+        amount,
+        currency: plan.currency,
+      };
+    } catch (err) {
+      await this.userService.addToBalance(userId, amount);
+      throw err;
+    }
   }
 
   private _currency(): string {

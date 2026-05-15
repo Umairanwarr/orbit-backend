@@ -7,7 +7,7 @@ import { Module } from '@nestjs/common';
 import { UserStoryService } from './user_story.service';
 import { UserStoryController } from './user_story.controller';
 import {StoryModule} from "../story/story.module";
-import {AuthModule} from "../../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import {UserModule} from "../../user_modules/user/user.module";
 import {FileUploaderModule} from "../../../common/file_uploader/file_uploader.module";
 import {BanModule} from "../../ban/ban.module";
@@ -23,7 +23,7 @@ import { StorySubscriptionModule } from "../story_subscription/story_subscriptio
   providers: [UserStoryService],
   imports:[
       StoryModule,
-      AuthModule,
+      AuthClientModule,
       UserModule,
       FileUploaderModule,
       BanModule,

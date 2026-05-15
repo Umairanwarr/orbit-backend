@@ -70,4 +70,8 @@ export class QueryPostDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

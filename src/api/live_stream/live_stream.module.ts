@@ -17,7 +17,7 @@ import { GiftSchema } from '../gifts/entities/gift.entity';
 import { LiveCategorySchema } from './schemas/live_category.schema';
 import { AgoraModule } from '../../chat/agora/agora.module';
 import { SocketIoModule } from '../../chat/socket_io/socket_io.module';
-import { AuthModule } from '../auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { UserModule } from '../user_modules/user/user.module';
 import { NotificationEmitterModule } from '../../common/notification_emitter/notification_emitter.module';
 import { UserDeviceModule } from '../user_modules/user_device/user_device.module';
@@ -41,7 +41,7 @@ import { RoomMemberModule } from '../../chat/room_member/room_member.module';
         ]),
         AgoraModule,
         SocketIoModule,
-        AuthModule,
+        AuthClientModule,
         UserModule,
         RoomMemberModule,
         NotificationEmitterModule,

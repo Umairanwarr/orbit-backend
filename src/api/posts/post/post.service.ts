@@ -89,6 +89,9 @@ export class PostService {
     if (query.userId) {
       filter.userId = new Types.ObjectId(query.userId);
     }
+    if (query.search) {
+      filter.caption = { $regex: query.search, $options: 'i' };
+    }
 
     const skip = (page - 1) * limit;
 

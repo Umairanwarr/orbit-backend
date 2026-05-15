@@ -11,7 +11,7 @@ import {SocketIoGateway} from './socket_io.gateway';
 import {CallMemberModule} from "../call_modules/call_member/call_member.module";
 import { UserModule } from "../../api/user_modules/user/user.module";
 import { RoomMemberModule } from "../room_member/room_member.module";
-import { AuthModule } from "../../api/auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { MessageModule } from "../message/message.module";
 import { RoomMiddlewareModule } from "../room_middleware/room_middleware.module";
 import {UserDeviceModule} from "../../api/user_modules/user_device/user_device.module";
@@ -23,7 +23,7 @@ import { LiveStreamSchema, LiveStreamParticipantSchema } from "../../api/live_st
     imports: [
         UserModule,
         RoomMemberModule,
-        AuthModule,
+        AuthClientModule,
         MessageModule,
         RoomMiddlewareModule,
         CallHistoryModule,

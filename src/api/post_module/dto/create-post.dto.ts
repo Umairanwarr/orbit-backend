@@ -10,6 +10,10 @@ import { Transform } from "class-transformer";
 export class CreatePostDto {
   @IsOptional()
   @IsString()
+  postType?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(2200, { message: "Caption cannot exceed 2200 characters" })
   caption?: string;
 

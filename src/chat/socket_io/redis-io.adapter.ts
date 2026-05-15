@@ -7,7 +7,7 @@
 import {IoAdapter} from "@nestjs/platform-socket.io";
 import {ServerOptions} from "socket.io";
 import {INestApplicationContext} from "@nestjs/common";
-import { AuthService } from "../../api/auth/auth.service";
+import { AuthClientService } from "../../common/auth_client/auth_client.service";
 
 export class RedisIoAdapter extends IoAdapter {
     constructor(
@@ -31,8 +31,8 @@ export class RedisIoAdapter extends IoAdapter {
                 if (!authToken) {
                     next(new Error("Auth must be provided !"))
                 }
-                let authService = this.app.get(AuthService);
-                socket.user = await authService.getVerifiedUser(authToken);
+                let authClient = this.app.get(AuthClientService);
+                socket.user = await authClient.getVerifiedUser(authToken);
                 next();
             } catch (e) {
                 console.log(e);

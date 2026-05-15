@@ -5,7 +5,7 @@ import { JobSeekerProfileSchema } from './job_seeker_profile.entity';
 import { JobsService } from './jobs.service';
 import { JobsController, JobSeekerController } from './jobs.controller';
 import { JobsPublicController } from './jobs_public.controller';
-import { AuthModule } from '../auth/auth.module';
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { VerifiedAuthGuard } from '../../core/guards/verified.auth.guard';
 import { UserSchema } from '../user_modules/user/entities/user.entity';
 
@@ -16,7 +16,7 @@ import { UserSchema } from '../user_modules/user/entities/user.entity';
       { name: 'JobSeekerProfile', schema: JobSeekerProfileSchema },
       { name: 'User', schema: UserSchema },
     ]),
-    AuthModule,
+    AuthClientModule,
   ],
   providers: [JobsService, VerifiedAuthGuard],
   controllers: [JobsController, JobSeekerController, JobsPublicController],

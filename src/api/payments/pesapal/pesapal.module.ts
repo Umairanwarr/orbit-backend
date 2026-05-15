@@ -2,7 +2,7 @@ import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import { ConfigModule } from "@nestjs/config";
 
-import { AuthModule } from "../../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { UserModule } from "../../user_modules/user/user.module";
 
 import { PesapalController } from "./pesapal.controller";
@@ -21,7 +21,7 @@ import { UserSchema } from "../../user_modules/user/entities/user.entity";
       { name: PesapalTransaction.name, schema: PesapalTransactionSchema },
       { name: "User", schema: UserSchema },
     ]),
-    AuthModule,
+    AuthClientModule,
     UserModule,
   ],
   controllers: [PesapalController],

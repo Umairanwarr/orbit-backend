@@ -10,7 +10,7 @@ import { ProfileService } from "./profile.service";
 import { ProfileController } from "./profile.controller";
 import { UserModule } from "../user_modules/user/user.module";
 import { UserDeviceModule } from "../user_modules/user_device/user_device.module";
-import { AuthModule } from "../auth/auth.module";
+import { AuthClientModule } from "src/common/auth_client/auth_client.module";
 import { VersionsModule } from "../versions/versions.module";
 import { FileUploaderModule } from "../../common/file_uploader/file_uploader.module";
 import { UserBanModule } from "../user_modules/user_ban/user_ban.module";
@@ -45,7 +45,7 @@ import { UserFollowModule } from "../user_modules/user_follow/user_follow.module
     UserModule,
     FileUploaderModule,
     UserBanModule,
-    AuthModule,
+    AuthClientModule,
     UserDeviceModule,
     VersionsModule,
     AppConfigModule,
