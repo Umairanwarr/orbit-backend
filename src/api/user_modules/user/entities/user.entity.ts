@@ -21,6 +21,7 @@ export interface IUser {
   uniqueCode: number;
   bio?: string;
   profession?: string;
+  dateOfBirth?: Date | null;
   phoneNumber?: string;
   // Gender enum male female
   gender?: string;
@@ -96,6 +97,7 @@ export const UserSchema = new mongoose.Schema(
     fullNameEn: { type: String, required: true },
     bio: { type: String, default: null },
     profession: { type: String, default: null },
+    dateOfBirth: { type: Date, default: null },
     phoneNumber: { type: String, default: null },
     userGlobalCallStatus: {
       type: Object,

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
+import { startOfDay, endOfDay } from "date-fns";
 import { AppConfigService } from "../../app_config/app_config.service";
 import { UserService } from "../../user_modules/user/user.service";
 import { StoryService } from "../story/story.service";
@@ -100,28 +101,38 @@ export class StorySubscriptionService {
       StoryType.Voice,
     ];
 
+    const subscriptionActive = await this.hasActive(userId);
+
     if (!gatedTypes.includes(type)) {
       return {
         allowed: true,
         storyType: type,
         freeLimit,
+        resetPolicy: "calendar_day" as const,
         postedCount: 0,
-        subscriptionActive: await this.hasActive(userId),
+        postedCountToday: 0,
+        subscriptionActive,
       };
     }
 
-    const postedCount = await this.storyService.countStoriesByUserIdAndType(
+    const now = new Date();
+    const dayStart = startOfDay(now);
+    const dayEnd = endOfDay(now);
+    const postedCountToday = await this.storyService.countStoriesByUserBetween(
       userId,
-      type,
+      dayStart,
+      dayEnd,
+      gatedTypes,
     );
-    const subscriptionActive = await this.hasActive(userId);
-    const allowed = postedCount < freeLimit || subscriptionActive;
+    const allowed = postedCountToday < freeLimit || subscriptionActive;
 
     return {
       allowed,
       storyType: type,
       freeLimit,
-      postedCount,
+      resetPolicy: "calendar_day" as const,
+      postedCount: postedCountToday,
+      postedCountToday,
       subscriptionActive,
     };
   }

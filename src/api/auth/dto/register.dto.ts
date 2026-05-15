@@ -9,6 +9,8 @@ import {
 
     IsEnum,
     IsNotEmpty,
+    IsOptional,
+    IsDateString,
     MaxLength,
     MinLength, ValidateIf,
 } from "class-validator";
@@ -36,6 +38,10 @@ export default class RegisterDto {
     @Allow()
     @Trim()
     profession?: string;
+
+    @IsOptional()
+    @IsDateString()
+    dateOfBirth?: string;
 
 
     @IsNotEmpty()

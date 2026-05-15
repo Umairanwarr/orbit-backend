@@ -83,6 +83,15 @@ export class AuthService {
     return v;
   }
 
+  private _parseOptionalDateOfBirth(raw: unknown): Date | null {
+    if (raw == null || raw === '') return null;
+    const d = new Date(String(raw));
+    if (Number.isNaN(d.getTime())) {
+      throw new BadRequestException('Invalid date of birth');
+    }
+    return d;
+  }
+
 
   async generateTwoFactorSecret(user: IUser) {
     // 1. Generate a new secret key
@@ -133,103 +142,81 @@ export class AuthService {
       }
     }
 
-    // Generate signed token carrying registration data (expires in 15 minutes)
-    const token = this.jwtService.sign(
-      {
-        type: 'register',
-        email: normalizedIdentifier,
-        method,
-        phoneNumber: method === RegisterMethod.phone ? normalizedIdentifier : null,
-        fullName: (registrationData?.fullName || '').toString(),
-        password: (registrationData?.password || '').toString(),
-        profession: (registrationData?.profession || '').toString(),
-      },
-      { expiresIn: '15m' }
-    );
     if (!global.tempOtpStorage) {
       global.tempOtpStorage = new Map();
     }
-    // Also store minimal state in-memory for backward compatibility
-    global.tempOtpStorage.set(normalizedIdentifier, {
-      code: token,
-      sendAt: new Date(),
-      expired: false,
-      verified: false,
-      registrationData: {
-        ...(registrationData || {}),
-        method,
-        phoneNumber: method === RegisterMethod.phone ? normalizedIdentifier : null,
-      },
-    });
 
-    // Build verification link (serve from backend public host)
-    const backendBase = (process.env.BACKEND_PUBLIC_URL || 'https://api.orbit.ke').replace(/\/$/, '');
-    const verifyLink = `${backendBase}/verify-email.html?token=${token}&email=${encodeURIComponent(
-      normalizedIdentifier,
-    )}`;
+    const registrationPayload = {
+      ...(registrationData || {}),
+      method,
+      phoneNumber: method === RegisterMethod.phone ? normalizedIdentifier : null,
+    };
 
+    let codeStr: string;
     if (method === RegisterMethod.phone) {
       if (!this.smsService.isReady) {
         throw new BadRequestException('SMS provider is not configured');
       }
+      const code = Math.floor(100000 + Math.random() * 900000);
+      codeStr = String(code);
       await this.smsService.sendSms(
         normalizedIdentifier,
-        `Orbit verification link: ${verifyLink}`,
+        `Your Orbit verification code is: ${codeStr}. It expires in 15 minutes.`,
       );
-      return isDev
-        ? `Verification link (dev mode): ${verifyLink}`
-        : 'Verification link has been sent to your phone number';
+    } else {
+      const tempUser: any = {
+        email: normalizedIdentifier,
+        fullName: registrationData?.fullName || 'New User',
+        _id: null,
+        lastMail: null,
+      };
+      const code = await this.mailEmitterService.sendConfirmEmail(
+        tempUser,
+        MailType.VerifyEmail,
+        isDev,
+      );
+      codeStr = String(code);
     }
 
-    // Send email containing the verification link
-    const tempUser: any = {
-      email: normalizedIdentifier,
-      fullName: registrationData?.fullName || 'New User',
-      _id: null,
-      lastMail: null,
-    };
-    await this.mailEmitterService.sendVerificationLink(tempUser, verifyLink, isDev);
+    global.tempOtpStorage.set(normalizedIdentifier, {
+      code: codeStr,
+      sendAt: new Date(),
+      expired: false,
+      verified: false,
+      registrationData: registrationPayload,
+    });
 
+    if (method === RegisterMethod.phone) {
+      return isDev
+        ? `Verification code (dev): ${codeStr}`
+        : 'A verification code has been sent to your phone number';
+    }
     return isDev
-      ? `Verification link (dev mode): ${verifyLink}`
-      : 'Verification link has been sent to your email';
+      ? `Verification code (dev): ${codeStr}`
+      : 'A verification code has been sent to your email';
   }
 
-  async verifyLinkRegister(identifier: string, token: string) {
+  async verifyLinkRegister(identifier: string, otp: string) {
     const identifierRaw = (identifier || '').toString().trim();
-    console.log('[VERIFY] Starting verification for identifier:', identifierRaw);
+    const otpCode = (otp || '').toString().trim();
+    console.log('[VERIFY] Starting OTP verification for identifier:', identifierRaw);
 
-    // 1) Try stateless JWT verification path first
-    let jwtData: any | null = null;
-    try {
-      const decoded: any = this.jwtService.verify(token);
-      const tokenMethod =
-        decoded?.method === RegisterMethod.phone ? RegisterMethod.phone : RegisterMethod.email;
-      const normalizedProvided =
-        tokenMethod === RegisterMethod.phone
-          ? this._normalizePhoneNumber(identifierRaw)
-          : identifierRaw.toLowerCase();
-      const normalizedToken =
-        tokenMethod === RegisterMethod.phone
-          ? this._normalizePhoneNumber((decoded.email || '').toString())
-          : ((decoded.email || '').toString().toLowerCase());
-
-      if (decoded?.type === 'register' && normalizedToken === normalizedProvided) {
-        jwtData = decoded;
-        console.log('[VERIFY] JWT decoded successfully:', {
-          identifier: jwtData.email,
-          method: jwtData.method,
-          hasPassword: !!jwtData.password,
-        });
-      }
-    } catch (err) {
-      console.log('[VERIFY] JWT verification failed:', err.message);
+    if (!global.tempOtpStorage) {
+      global.tempOtpStorage = new Map();
     }
 
-    // If user already exists, return early regardless of path
-    const normalizedLookup = jwtData?.method === RegisterMethod.phone
-      ? this._normalizePhoneNumber(identifierRaw)
-      : identifierRaw.toLowerCase();
+    const asEmail = identifierRaw.toLowerCase();
+    const asPhone = this._normalizePhoneNumber(identifierRaw);
+    let otpData = global.tempOtpStorage.get(asEmail);
+    let normalizedLookup = asEmail;
+    if (!otpData && asPhone) {
+      otpData = global.tempOtpStorage.get(asPhone);
+      normalizedLookup = asPhone;
+    }
+
+    if (!otpData) {
+      throw new BadRequestException(i18nApi.noCodeHasBeenSendToYouToVerifyYourEmailString);
+    }
 
     const preExisting = await this.userService.findOneByEmail(normalizedLookup, 'email');
     if (preExisting) {
@@ -237,10 +224,17 @@ export class AuthService {
       return 'Account already created. Please login.';
     }
 
-    if (jwtData?.method === RegisterMethod.phone) {
+    const regPreview = otpData.registrationData || {};
+    const previewMethod =
+      regPreview.method === RegisterMethod.phone ? RegisterMethod.phone : RegisterMethod.email;
+    if (previewMethod === RegisterMethod.phone) {
       const existingByPhone = await this.userService.findOne(
-        { phoneNumber: this._normalizePhoneNumber(jwtData.phoneNumber || normalizedLookup) },
-        '_id'
+        {
+          phoneNumber: this._normalizePhoneNumber(
+            regPreview.phoneNumber || normalizedLookup,
+          ),
+        },
+        '_id',
       );
       if (existingByPhone) {
         console.log('[VERIFY] User already exists by phone:', normalizedLookup);
@@ -248,69 +242,15 @@ export class AuthService {
       }
     }
 
-    if (jwtData) {
-      // Create user using data from JWT
-      const regData = {
-        fullName: (jwtData.fullName || '').toString(),
-        password: (jwtData.password || '').toString(),
-        profession: (jwtData.profession || '').toString(),
-        method: jwtData.method === RegisterMethod.phone ? RegisterMethod.phone : RegisterMethod.email,
-        phoneNumber: jwtData.phoneNumber ? this._normalizePhoneNumber(jwtData.phoneNumber) : null,
-      };
-      if (!regData.fullName || !regData.password) {
-        throw new BadRequestException('Registration data missing in token. Please register again.');
-      }
-      const profession = regData.profession?.toString?.().trim?.() || null;
-      const uniqueCode = await this.generateUniqueCode();
-      console.log('[VERIFY] Creating user from JWT data:', { identifier: normalizedLookup, fullName: regData.fullName, method: regData.method });
-      const user = await this.userService.create({
-        email: normalizedLookup,
-        fullName: regData.fullName,
-        fullNameEn: remove(regData.fullName),
-        password: regData.password,
-        profession,
-        registerStatus: RegisterStatus.accepted,
-        registerMethod: regData.method,
-        uniqueCode: uniqueCode,
-        userImage: '',
-        bio: null,
-        phoneNumber: regData.method === RegisterMethod.phone ? regData.phoneNumber : null,
-        lastSeenAt: new Date(),
-        // @ts-ignore
-        lastMail: {},
-        address: null,
-      });
-      console.log('[VERIFY] User created successfully:', { userId: user._id, identifier: user.email, method: regData.method });
-      // Optionally set temp storage for short time
-      if (!global.tempOtpStorage) global.tempOtpStorage = new Map();
-      global.tempOtpStorage.set(normalizedLookup, {
-        code: token,
-        sendAt: new Date(),
-        expired: true,
-        verified: true,
-        registrationData: regData,
-      });
-      return { message: 'Account created successfully! Please login with your email and password.', userId: user._id };
-    }
-
-    // 2) Fallback to in-memory code path (legacy) if JWT not valid or not present
-    if (!global.tempOtpStorage) {
-      global.tempOtpStorage = new Map();
-    }
-    const otpData = global.tempOtpStorage.get(normalizedLookup);
-    if (!otpData) {
-      throw new BadRequestException(i18nApi.noCodeHasBeenSendToYouToVerifyYourEmailString);
-    }
     const config = await this.appConfigService.getConfig();
     const min = parseInt(date.subtract(new Date(), otpData.sendAt).toMinutes().toString(), 10);
     if (otpData.expired || min > config.maxExpireEmailTime) {
       throw new BadRequestException(i18nApi.codeHasBeenExpiredString);
     }
-    if (otpData.code !== token) {
-      throw new BadRequestException('Invalid token!');
+    if (otpData.code !== otpCode) {
+      throw new BadRequestException('Invalid verification code');
     }
 
-    // Auto-create user account from stored registration data
     const regData = otpData.registrationData || {};
     if (!regData.fullName || !regData.password) {
       throw new BadRequestException('Registration data incomplete. Please register again.');
@@ -320,6 +260,7 @@ export class AuthService {
     const phoneNumber = regMethod === RegisterMethod.phone
       ? this._normalizePhoneNumber(regData.phoneNumber || normalizedLookup)
       : null;
+    const dateOfBirth = this._parseOptionalDateOfBirth(regData.dateOfBirth);
     const uniqueCode = await this.generateUniqueCode();
     const newUser = await this.userService.create({
       email: normalizedLookup,
@@ -333,14 +274,22 @@ export class AuthService {
       userImage: '',
       bio: null,
       phoneNumber,
+      dateOfBirth,
       lastSeenAt: new Date(),
       // @ts-ignore
       lastMail: {},
       address: null,
     });
-    // Mark verified
-    global.tempOtpStorage.set(normalizedLookup, { ...otpData, expired: true, verified: true, registrationData: otpData.registrationData });
-    return { message: 'Account created successfully! Please login with your email and password.', userId: newUser._id };
+    global.tempOtpStorage.set(normalizedLookup, {
+      ...otpData,
+      expired: true,
+      verified: true,
+      registrationData: otpData.registrationData,
+    });
+    return {
+      message: 'Account created successfully! Please login with your email and password.',
+      userId: newUser._id,
+    };
   }
 
   // turn off two factor authentication
@@ -585,70 +534,47 @@ export class AuthService {
   // }
 
 
-  async resetPasswordWithLink(
+  async resetPasswordWithOtp(
     email: string,
-    token: string,
+    otp: string,
     newPassword: string
   ) {
-    const user = await this.userService.findOne(
-      { email: email.toLowerCase() },
-      "_id email resetPasswordOTP resetPasswordOTPExpiry password"
-    );
-
-    if (!user) {
-      throw new BadRequestException("User not found");
-    }
-
-    if (new Date() > user.resetPasswordOTPExpiry) {
-      throw new BadRequestException("Reset link has expired");
-    }
-
-    if (
-      !user.resetPasswordOTP ||
-      !user.resetPasswordOTPExpiry ||
-      user.resetPasswordOTP !== token
-    ) {
-      throw new BadRequestException("Invalid or expired reset link");
-    }
-
-    // update password (will trigger pre('findOneAndUpdate') hook to hash)
-    await this.userService.findOneAndUpdate(
-      { _id: user._id },
-      {
-        $set: { password: newPassword },
-        $unset: { resetPasswordOTP: "", resetPasswordOTPExpiry: "" },
-      }
-    );
-
-    return "Password reset successfully";
+    return this.verifyOtpResetPassword({
+      email: email.toLowerCase(),
+      code: String(otp ?? '').trim(),
+      newPassword,
+    } as ResetPasswordDto);
   }
 
-  async sendResetPasswordLink(email: string, isDev: boolean) {
+  async sendForgotPasswordOtp(email: string, isDev: boolean) {
     const usr = await this.userService.findOneByEmailOrThrow(
       email.toLowerCase(),
-      "email fullName userImage verifiedAt"
+      "email fullName userImage verifiedAt lastMail"
     );
 
-    // generate secure random token
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    const resetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 mins expiry
+    const code = await this.mailEmitterService.sendConfirmEmail(
+      usr,
+      MailType.ResetPassword,
+      isDev
+    );
+    const codeStr = String(code);
 
-    // store token & expiry in DB
     await this.userService.findByIdAndUpdate(usr._id, {
-      resetPasswordOTP: resetToken,
-      resetPasswordOTPExpiry: resetTokenExpiry,
+      $unset: { resetPasswordOTP: "", resetPasswordOTPExpiry: "" },
+      $set: {
+        lastMail: {
+          type: MailType.ResetPassword,
+          sendAt: new Date(),
+          code: codeStr,
+          expired: false,
+        },
+      },
     });
 
-    // build reset link -> point to dynamic route served by backend
-    const frontendBase = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    const resetLink = `${frontendBase}/reset-password?token=${resetToken}&email=${encodeURIComponent(usr.email)}`;
-
-    // send email with link
-    await this.mailEmitterService.sendResetPasswordLink(usr, resetLink, isDev);
-
-    return isDev
-      ? `Reset link (dev mode): ${resetLink}`
-      : "Password reset link has been sent to your email";
+    if (isDev) {
+      return `Password reset code (dev): ${codeStr}`;
+    }
+    return "A password reset code has been sent to your email";
   }
 
   async handleSocialLogin(profile: any, provider: string, dto: SocialLoginDto) {
@@ -1055,12 +981,17 @@ export class AuthService {
     const uniqueCode = await this.generateUniqueCode();
     let appConfig = await this.appConfigService.getConfig();
 
+    const dateOfBirth = dto.dateOfBirth
+      ? this._parseOptionalDateOfBirth(dto.dateOfBirth)
+      : null;
+
     let createdUser: IUser = await this.userService.create({
       email: identifier,
       fullName: dto.fullName,
       registerStatus: appConfig.userRegisterStatus,
       bio: null,
       profession: ((dto as any).profession || '').toString().trim() || null,
+      dateOfBirth,
       uniqueCode: uniqueCode,
       fullNameEn: remove(dto.fullName),
       registerMethod: dto.method,
@@ -1126,27 +1057,7 @@ export class AuthService {
   }
 
   async sendOtpResetPassword(email: string, isDev: boolean) {
-    let usr = await this.userService.findOneByEmailOrThrow(
-      email.toLowerCase(),
-      "email fullName userImages verifiedAt lastMail"
-    );
-    let code = await this.mailEmitterService.sendConfirmEmail(
-      usr,
-      MailType.ResetPassword,
-      isDev
-    );
-    await this.userService.findByIdAndUpdate(usr._id, {
-      lastMail: {
-        type: MailType.ResetPassword,
-        sendAt: new Date(),
-        code: code,
-        expired: false,
-      },
-    });
-    if (isDev) {
-      return "Password reset code has been send to your email " + code;
-    }
-    return "Password reset code has been send to your email";
+    return this.sendForgotPasswordOtp(email, isDev);
   }
 
   async sendOtpRegister(email: string, isDev: boolean) {
@@ -1247,7 +1158,9 @@ export class AuthService {
     if (user.lastMail.type != MailType.ResetPassword) {
       throw new BadRequestException("Cant process with the mail type");
     }
-    if (user.lastMail.code == dto.code) {
+    const expected = String(user.lastMail.code ?? "").trim();
+    const got = String(dto.code ?? "").trim();
+    if (expected === got) {
       await this.userService.findByIdAndUpdate(user._id, {
         "lastMail.expired": true,
         password: dto.newPassword,

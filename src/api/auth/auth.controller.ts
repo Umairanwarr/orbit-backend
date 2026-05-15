@@ -68,31 +68,21 @@ export class AuthController {
   //   return resOK(await this.verificationService.reject(p.id, req.user, body));
   // }
 
-  @Post("/reset-password-with-link")
-  async resetPasswordWithLink(
+  @Post("/reset-password-with-otp")
+  async resetPasswordWithOtp(
     @Body("email") email: string,
-    @Body("token") token: string,
+    @Body("otp") otp: string,
     @Body("newPassword") newPassword: string
   ) {
-    if (!email || !token || !newPassword) {
+    const code = (otp ?? "").toString().trim();
+    if (!email || !code || !newPassword) {
       throw new BadRequestException(
-        "Email, token, and new password are required"
+        "Email, otp, and new password are required"
       );
     }
     return resOK(
-      await this.authService.resetPasswordWithLink(email, token, newPassword)
+      await this.authService.resetPasswordWithOtp(email, code, newPassword)
     );
-  }
-
-  @Post("/send-link-reset-password")
-  async sendLinkResetPassword(
-    @Body("email") email: string,
-    @IsDevelopment() isDev: boolean
-  ) {
-    if (!email) {
-      throw new BadRequestException("Email is required");
-    }
-    return resOK(await this.authService.sendResetPasswordLink(email, isDev));
   }
 
   @Post("/google")
@@ -322,6 +312,7 @@ export class AuthController {
     @Body('fullName') fullName: string,
     @Body('password') password: string,
     @Body('profession') profession: string,
+    @Body('dateOfBirth') dateOfBirth: string,
     @Body('method') method: RegisterMethod,
     @IsDevelopment() isDev: boolean,
   ) {
@@ -334,6 +325,7 @@ export class AuthController {
         password,
         profession,
         method,
+        dateOfBirth,
       }),
     );
   }
@@ -343,11 +335,13 @@ export class AuthController {
   async verifyLinkRegister(
     @Body('email') email: string,
     @Body('token') token: string,
+    @Body('otp') otp: string,
   ) {
-    if (!email || !token) {
-      throw new BadRequestException('Email/phone and token are required');
+    const code = (otp ?? token)?.toString?.()?.trim();
+    if (!email || !code) {
+      throw new BadRequestException('Email/phone and verification code (otp or token) are required');
     }
-    return resOK(await this.authService.verifyLinkRegister(email, token));
+    return resOK(await this.authService.verifyLinkRegister(email, code));
   }
 
   @Post("/verify-otp-register")
@@ -364,8 +358,7 @@ export class AuthController {
     if (!email) {
       throw new BadRequestException("Email is required");
     }
-    // Changed to use link-based reset instead of OTP
-    return resOK(await this.authService.sendResetPasswordLink(email, isDv));
+    return resOK(await this.authService.sendOtpResetPassword(email, isDv));
   }
 
   @UseGuards(VerifiedAuthGuard)
@@ -378,14 +371,18 @@ export class AuthController {
   @Post("/verify-and-reset-password")
   async verifyOtpResetPassword(
     @Body("email") email: string,
-    @Body("token") token: string,
+    @Body("otp") otp: string,
     @Body("newPassword") newPassword: string
   ) {
-    if (!email || !token || !newPassword) {
-      throw new BadRequestException("Email, token, and new password are required");
+    const code = (otp ?? "").toString().trim();
+    if (!email || !code || !newPassword) {
+      throw new BadRequestException(
+        "Email, otp, and new password are required",
+      );
     }
-    // Changed to use link-based reset instead of OTP
-    return resOK(await this.authService.resetPasswordWithLink(email, token, newPassword));
+    return resOK(
+      await this.authService.resetPasswordWithOtp(email, code, newPassword),
+    );
   }
 
   @Post('/firebase-phone-register')
